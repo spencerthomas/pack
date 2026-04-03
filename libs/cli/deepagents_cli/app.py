@@ -2844,6 +2844,74 @@ class DeepAgentsApp(App):
                 exclusive=True,
                 group="startup-skill-discovery",
             )
+        # -- Pack-specific commands ------------------------------------------
+        elif cmd == "/cost":
+            await self._mount_message(UserMessage(command))
+            from deepagents_cli.pack_command_handlers import handle_cost
+
+            result = await handle_cost(self, "")
+            await self._mount_message(AppMessage(result))
+        elif cmd.startswith("/budget"):
+            await self._mount_message(UserMessage(command))
+            from deepagents_cli.pack_command_handlers import handle_budget
+
+            args = command.strip()[len("/budget") :].strip()
+            result = await handle_budget(self, args)
+            await self._mount_message(AppMessage(result))
+        elif cmd.startswith("/expand"):
+            await self._mount_message(UserMessage(command))
+            from deepagents_cli.pack_command_handlers import handle_expand
+
+            args = command.strip()[len("/expand") :].strip()
+            result = await handle_expand(self, args)
+            await self._mount_message(AppMessage(result))
+        elif cmd.startswith("/permissions"):
+            await self._mount_message(UserMessage(command))
+            from deepagents_cli.pack_command_handlers import handle_permissions
+
+            args = command.strip()[len("/permissions") :].strip()
+            result = await handle_permissions(self, args)
+            await self._mount_message(AppMessage(result))
+        elif cmd == "/dream":
+            await self._mount_message(UserMessage(command))
+            from deepagents_cli.pack_command_handlers import handle_dream
+
+            result = await handle_dream(self, "")
+            await self._mount_message(AppMessage(result))
+        elif cmd.startswith("/worktree"):
+            await self._mount_message(UserMessage(command))
+            from deepagents_cli.pack_command_handlers import handle_worktree
+
+            args = command.strip()[len("/worktree") :].strip()
+            result = await handle_worktree(self, args)
+            await self._mount_message(AppMessage(result))
+        elif cmd == "/review" or cmd.startswith("/review "):
+            await self._mount_message(UserMessage(command))
+            from deepagents_cli.pack_command_handlers import handle_review
+
+            args = command.strip()[len("/review") :].strip()
+            result = await handle_review(self, args)
+            await self._mount_message(AppMessage(result))
+        elif cmd == "/security" or cmd.startswith("/security "):
+            await self._mount_message(UserMessage(command))
+            from deepagents_cli.pack_command_handlers import handle_security
+
+            args = command.strip()[len("/security") :].strip()
+            result = await handle_security(self, args)
+            await self._mount_message(AppMessage(result))
+        elif cmd == "/pack-compact":
+            await self._mount_message(UserMessage(command))
+            from deepagents_cli.pack_command_handlers import handle_compact
+
+            result = await handle_compact(self, "")
+            await self._mount_message(AppMessage(result))
+        elif cmd == "/agents":
+            await self._mount_message(UserMessage(command))
+            from deepagents_cli.pack_command_handlers import handle_agents
+
+            result = await handle_agents(self, "")
+            await self._mount_message(AppMessage(result))
+        # -- End Pack-specific commands --------------------------------------
         elif cmd.startswith("/skill:"):
             await self._handle_skill_command(command)
         else:

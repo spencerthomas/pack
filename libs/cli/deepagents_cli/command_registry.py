@@ -167,7 +167,13 @@ COMMANDS: tuple[SlashCommand, ...] = (
         aliases=("/q",),
     ),
 )
-"""All slash commands."""
+"""All slash commands (upstream)."""
+
+# Append Pack-specific commands (cost, permissions, memory, agents, etc.)
+from deepagents_cli.pack_commands import PACK_COMMANDS
+
+COMMANDS = COMMANDS + PACK_COMMANDS
+"""All slash commands (upstream + Pack)."""
 
 
 # ---------------------------------------------------------------------------

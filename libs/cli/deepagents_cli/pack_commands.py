@@ -31,7 +31,9 @@ PACK_COMMANDS: tuple[SlashCommand, ...] = (
     ),
     SlashCommand(
         name="/permissions",
-        description="Manage permission rules. Usage: /permissions list|reset|add|remove",
+        description=(
+            "Manage permission rules. Usage: /permissions list|reset|add|remove"
+        ),
         bypass_tier=BypassTier.QUEUED,
         hidden_keywords="rules allow deny",
     ),
@@ -60,7 +62,7 @@ PACK_COMMANDS: tuple[SlashCommand, ...] = (
         hidden_keywords="vulnerability audit scan",
     ),
     SlashCommand(
-        name="/compact",
+        name="/pack-compact",
         description="Manually trigger context compaction",
         bypass_tier=BypassTier.QUEUED,
         hidden_keywords="compress shrink context",
