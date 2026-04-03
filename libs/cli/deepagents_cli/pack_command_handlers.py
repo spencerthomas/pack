@@ -173,7 +173,7 @@ async def handle_permissions(  # noqa: RUF029
     pipeline = state.permission_pipeline if state else None
     if pipeline is None:
         return "Pack harness is not active. Set PACK_ENABLED=1."
-    rule_store = pipeline._rules
+    rule_store = pipeline.rule_store
 
     parts = args.strip().split(maxsplit=1)
     subcommand = parts[0].lower() if parts else "list"

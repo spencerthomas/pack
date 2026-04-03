@@ -47,9 +47,10 @@ class PermissionMiddleware(AgentMiddleware):
             return await handler(request)
 
         # Extract tool name and args from the request
-        tool_name = request.call.get("name", "") if hasattr(request, "call") else ""
-        args = request.call.get("args", {}) if hasattr(request, "call") else {}
-        tool_call_id = request.call.get("id", "") if hasattr(request, "call") else ""
+        call = getattr(request, "call", None) or {}
+        tool_name = call.get("name", "") if isinstance(call, dict) else ""
+        args = call.get("args", {}) if isinstance(call, dict) else {}
+        tool_call_id = call.get("id", "") if isinstance(call, dict) else ""
 
         result = self._pipeline.evaluate(tool_name, args)
 

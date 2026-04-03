@@ -27,6 +27,12 @@ OPENROUTER_API_KEY_ENV = "OPENROUTER_API_KEY"
 _DEFAULT_AUX_MODEL = "mistralai/mistral-small"
 """Default cheap model on OpenRouter for auxiliary tasks when Ollama is unavailable."""
 
+_UNSUPPORTED_CHATAI_KWARGS: frozenset[str] = frozenset({
+    "app_url", "app_title", "app_categories",
+})
+"""Kwargs from OpenRouter attribution defaults that ChatOpenAI does not accept."""
+"""Default cheap model on OpenRouter for auxiliary tasks when Ollama is unavailable."""
+
 
 def _get_api_key() -> str | None:
     """Read the OpenRouter API key from the environment.
@@ -131,10 +137,10 @@ class OpenRouterProvider:
         _, resolved_model = parse_model_string(model or self._default_model)
         merged_kwargs = {**self._model_kwargs, **kwargs}
 
-        # Filter out kwargs that ChatOpenAI doesn't accept
-        # (e.g., app_url, app_title from OpenRouter attribution defaults)
-        _UNSUPPORTED_KWARGS = {"app_url", "app_title", "app_categories"}  # noqa: N806
-        filtered_kwargs = {k: v for k, v in merged_kwargs.items() if k not in _UNSUPPORTED_KWARGS}
+        filtered_kwargs = {
+            k: v for k, v in merged_kwargs.items()
+            if k not in _UNSUPPORTED_CHATAI_KWARGS
+        }
 
         # Pass attribution headers via default_headers instead
         headers: dict[str, str] = {}

@@ -109,6 +109,11 @@ class PermissionPipeline:
         self._breaker = circuit_breaker or CircuitBreaker()
 
     @property
+    def rule_store(self) -> RuleStore:
+        """Access the rule store for listing/managing rules."""
+        return self._rules
+
+    @property
     def circuit_breaker(self) -> CircuitBreaker:
         """Access the circuit breaker state."""
         return self._breaker

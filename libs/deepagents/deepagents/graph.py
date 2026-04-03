@@ -407,7 +407,11 @@ def _add_pack_middleware(
     if not os.environ.get("PACK_ENABLED"):
         return
 
-    data_dir = Path(os.environ.get("PACK_DATA_DIR", str(Path.home() / ".pack")))
+    try:
+        default_data = str(Path.home() / ".pack")
+    except RuntimeError:
+        default_data = str(Path(tempfile.gettempdir()) / ".pack")
+    data_dir = Path(os.environ.get("PACK_DATA_DIR", default_data))
     data_dir.mkdir(parents=True, exist_ok=True)
 
     # Cost tracking

@@ -1807,7 +1807,6 @@ def detect_provider(model_name: str) -> str | None:
     # Pack enhancement: detect OpenRouter provider/model slash format
     # e.g., "deepseek/deepseek-chat", "meta-llama/llama-3.3-70b"
     if "/" in model_name and ":" not in model_name:
-        import os
         if os.environ.get("OPENROUTER_API_KEY"):
             return "openrouter"
 
@@ -2245,11 +2244,9 @@ def create_model(
     # Pack enhancement: use our OpenRouterProvider for slash-format models
     # instead of requiring langchain-openrouter package
     if provider == "openrouter" and "/" in model_name and ":" not in model_spec:
-        import os as _os
-
         from deepagents.providers.openrouter import OpenRouterProvider
 
-        _or_key = _os.environ.get("OPENROUTER_API_KEY", "")
+        _or_key = os.environ.get("OPENROUTER_API_KEY", "")
         model = OpenRouterProvider(api_key=_or_key).create_model(model_name, **kwargs)
     elif class_path:
         model = _create_model_from_class(class_path, model_name, provider, kwargs)
