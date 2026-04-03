@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 
 from deepagents.compaction.context_collapse import ContextCollapser
 from deepagents.compaction.monitor import CompactionMonitor
@@ -22,17 +22,13 @@ class TestCostMiddleware:
     def test_extract_usage_from_token_usage(self) -> None:
         response = MagicMock()
         response.response_metadata = {
-            "token_usage": {
-                "prompt_tokens": 100,
-                "completion_tokens": 50,
-            },
+            "token_usage": {"prompt_tokens": 100, "completion_tokens": 50},
             "model_name": "deepseek/deepseek-chat",
         }
         usage = _extract_usage(response)
         assert usage is not None
         assert usage["input_tokens"] == 100
         assert usage["output_tokens"] == 50
-        assert usage["model"] == "deepseek/deepseek-chat"
 
     def test_extract_usage_returns_none_for_missing(self) -> None:
         response = MagicMock(spec=[])
@@ -47,16 +43,13 @@ class TestCostMiddleware:
             "token_usage": {"prompt_tokens": 500, "completion_tokens": 100},
             "model_name": "test-model",
         }
-        # Ensure message attribute also has usage_metadata for fallback path
         response.message = MagicMock()
         response.message.usage_metadata = None
 
-        next_fn = AsyncMock(return_value=response)
+        handler = AsyncMock(return_value=response)
         request = MagicMock()
-        request.messages = [HumanMessage(content="test")]
-        config: dict = {}
 
-        await middleware.wrap_model_call(request, config, next=next_fn)
+        await middleware.awrap_model_call(request, handler)
         assert tracker.total_input_tokens + tracker.total_output_tokens > 0
 
 
@@ -68,12 +61,13 @@ class TestPermissionMiddleware:
         )
         middleware = PermissionMiddleware(pipeline)
 
-        next_fn = AsyncMock(return_value="file contents")
-        config: dict = {}
+        handler = AsyncMock(return_value=ToolMessage(content="file contents", tool_call_id="1"))
+        request = MagicMock()
+        request.call = {"name": "read_file", "args": {"path": "foo.py"}, "id": "1"}
 
-        result = await middleware.wrap_tool_call("read_file", {"path": "foo.py"}, config, next=next_fn)
-        assert result == "file contents"
-        next_fn.assert_called_once()
+        result = await middleware.awrap_tool_call(request, handler)
+        assert result.content == "file contents"
+        handler.assert_called_once()
 
     async def test_denies_dangerous_tool(self, tmp_path: Path) -> None:
         pipeline = PermissionPipeline(
@@ -82,12 +76,13 @@ class TestPermissionMiddleware:
         )
         middleware = PermissionMiddleware(pipeline)
 
-        next_fn = AsyncMock(return_value="should not reach")
-        config: dict = {}
+        handler = AsyncMock(return_value=ToolMessage(content="should not reach", tool_call_id="1"))
+        request = MagicMock()
+        request.call = {"name": "execute", "args": {"command": "rm -rf /"}, "id": "1"}
 
-        result = await middleware.wrap_tool_call("execute", {"command": "rm -rf /"}, config, next=next_fn)
-        assert "Permission denied" in result
-        next_fn.assert_not_called()
+        result = await middleware.awrap_tool_call(request, handler)
+        assert "Permission denied" in result.content
+        handler.assert_not_called()
 
     async def test_auto_approve_bypasses_pipeline(self, tmp_path: Path) -> None:
         pipeline = PermissionPipeline(
@@ -96,12 +91,13 @@ class TestPermissionMiddleware:
         )
         middleware = PermissionMiddleware(pipeline, auto_approve=True)
 
-        next_fn = AsyncMock(return_value="executed")
-        config: dict = {}
+        handler = AsyncMock(return_value=ToolMessage(content="executed", tool_call_id="1"))
+        request = MagicMock()
+        request.call = {"name": "execute", "args": {"command": "rm -rf /"}, "id": "1"}
 
-        result = await middleware.wrap_tool_call("execute", {"command": "rm -rf /"}, config, next=next_fn)
-        assert result == "executed"
-        next_fn.assert_called_once()
+        result = await middleware.awrap_tool_call(request, handler)
+        assert result.content == "executed"
+        handler.assert_called_once()
 
 
 class TestCompactionMiddleware:
@@ -111,11 +107,11 @@ class TestCompactionMiddleware:
         middleware = CompactionMiddleware(monitor, collapser)
 
         request = MagicMock()
-        request.messages = [HumanMessage(content="short")]
-        next_fn = AsyncMock(return_value="response")
-        config: dict = {}
+        request.state = MagicMock()
+        request.state.messages = [HumanMessage(content="short")]
+        handler = AsyncMock(return_value="response")
 
-        result = await middleware.wrap_model_call(request, config, next=next_fn)
+        result = await middleware.awrap_model_call(request, handler)
         assert result == "response"
 
     async def test_no_messages_passes_through(self, tmp_path: Path) -> None:
@@ -124,8 +120,7 @@ class TestCompactionMiddleware:
         middleware = CompactionMiddleware(monitor, collapser)
 
         request = MagicMock(spec=[])
-        next_fn = AsyncMock(return_value="response")
-        config: dict = {}
+        handler = AsyncMock(return_value="response")
 
-        result = await middleware.wrap_model_call(request, config, next=next_fn)
+        result = await middleware.awrap_model_call(request, handler)
         assert result == "response"

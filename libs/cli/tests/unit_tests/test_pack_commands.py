@@ -46,8 +46,16 @@ class TestPackCommandIntegrity:
     def test_expected_commands_present(self) -> None:
         names = {cmd.name for cmd in PACK_COMMANDS}
         expected = {
-            "/cost", "/budget", "/expand", "/permissions", "/dream",
-            "/worktree", "/review", "/security", "/compact", "/agents",
+            "/cost",
+            "/budget",
+            "/expand",
+            "/permissions",
+            "/dream",
+            "/worktree",
+            "/review",
+            "/security",
+            "/compact",
+            "/agents",
         }
         assert names == expected
 
@@ -157,7 +165,7 @@ class TestHandlerBudget:
         tracker = MagicMock()
         tracker.budget = None
         result = await handle_budget(None, "10.00", tracker=tracker)
-        assert tracker._budget == 10.0
+        assert tracker._budget == 10.0  # noqa: RUF069
         assert "budget set to" in result.lower()
 
     async def test_strips_dollar_sign(self) -> None:
@@ -165,8 +173,8 @@ class TestHandlerBudget:
 
         tracker = MagicMock()
         tracker.budget = None
-        result = await handle_budget(None, "$5", tracker=tracker)
-        assert tracker._budget == 5.0
+        await handle_budget(None, "$5", tracker=tracker)
+        assert tracker._budget == 5.0  # noqa: RUF069
 
     async def test_rejects_invalid_amount(self) -> None:
         from deepagents_cli.pack_command_handlers import handle_budget

@@ -88,6 +88,13 @@ def resolve_model(model: str | BaseChatModel) -> BaseChatModel:
     """
     if isinstance(model, BaseChatModel):
         return model
+    # Pack enhancement: intercept provider/model slash format (OpenRouter style)
+    # e.g., "deepseek/deepseek-chat", "anthropic/claude-sonnet-4-6"
+    if "/" in model and not model.startswith(("http://", "https://")) and ":" not in model:
+        openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+        if openrouter_key:
+            from deepagents.providers.openrouter import OpenRouterProvider
+            return OpenRouterProvider(api_key=openrouter_key).create_model(model)
     if model.startswith("openai:"):
         return init_chat_model(model, use_responses_api=True)
     if model.startswith("openrouter:"):

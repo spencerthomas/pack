@@ -14,7 +14,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from deepagents.agents.profiles import AgentProfile
     from deepagents.compaction.context_collapse import ContextCollapser
     from deepagents.compaction.monitor import CompactionMonitor
     from deepagents.cost.tracker import CostTracker
@@ -22,9 +21,9 @@ if TYPE_CHECKING:
     from deepagents.permissions.rules import RuleStore
 
 
-async def handle_cost(
-    app: Any,
-    args: str,
+async def handle_cost(  # noqa: RUF029
+    app: Any,  # noqa: ANN401, ARG001
+    args: str,  # noqa: ARG001
     *,
     tracker: CostTracker | None = None,
 ) -> str:
@@ -35,7 +34,7 @@ async def handle_cost(
 
     Args:
         app: The CLI application instance.
-        args: Unused argument string.
+        args: Unused argument string (reserved for handler interface).
         tracker: Active cost tracker for the session.
 
     Returns:
@@ -46,8 +45,7 @@ async def handle_cost(
 
     from deepagents.cost.display import format_cost, format_tokens
 
-    lines: list[str] = ["Cost Breakdown"]
-    lines.append("=" * 40)
+    lines: list[str] = ["Cost Breakdown", "=" * 40]
 
     for model, stats in tracker.models.items():
         lines.append(
@@ -57,9 +55,13 @@ async def handle_cost(
             f"{stats.turns} turns)"
         )
 
-    lines.append("-" * 40)
-    lines.append(f"Total: {format_cost(tracker.total_cost)}")
-    lines.append(f"Turns: {tracker.turn_count}")
+    lines.extend(
+        [
+            "-" * 40,
+            f"Total: {format_cost(tracker.total_cost)}",
+            f"Turns: {tracker.turn_count}",
+        ]
+    )
 
     if tracker.budget is not None:
         remaining = tracker.budget_remaining
@@ -71,8 +73,8 @@ async def handle_cost(
     return "\n".join(lines)
 
 
-async def handle_budget(
-    app: Any,
+async def handle_budget(  # noqa: RUF029
+    app: Any,  # noqa: ANN401, ARG001
     args: str,
     *,
     tracker: CostTracker | None = None,
@@ -107,14 +109,14 @@ async def handle_budget(
         return "Budget must be a positive number."
 
     # CostTracker doesn't expose a public setter yet; set the private attr
-    tracker._budget = amount  # noqa: SLF001
+    tracker._budget = amount
     from deepagents.cost.display import format_cost
 
     return f"Session budget set to {format_cost(amount)}."
 
 
-async def handle_expand(
-    app: Any,
+async def handle_expand(  # noqa: RUF029
+    app: Any,  # noqa: ANN401, ARG001
     args: str,
     *,
     collapser: ContextCollapser | None = None,
@@ -146,8 +148,8 @@ async def handle_expand(
     return content
 
 
-async def handle_permissions(
-    app: Any,
+async def handle_permissions(  # noqa: RUF029
+    app: Any,  # noqa: ANN401, ARG001
     args: str,
     *,
     rule_store: RuleStore | None = None,
@@ -172,31 +174,32 @@ async def handle_permissions(
         rules = rule_store.rules
         if not rules:
             return "No permission rules configured."
-        lines: list[str] = [f"Permission Rules ({len(rules)})"]
-        lines.append("=" * 40)
-        for rule in rules:
-            lines.append(
-                f"  {rule.decision.value:5s} {rule.tool_name} "
-                f"pattern={rule.pattern!r} (hits: {rule.hit_count})"
-            )
+        lines: list[str] = [f"Permission Rules ({len(rules)})", "=" * 40]
+        lines.extend(
+            f"  {rule.decision.value:5s} {rule.tool_name} "
+            f"pattern={rule.pattern!r} (hits: {rule.hit_count})"
+            for rule in rules
+        )
         return "\n".join(lines)
 
     if subcommand == "reset":
         rule_store.clear()
         return "All permission rules cleared."
 
-    if subcommand in ("add", "remove"):
+    if subcommand in {"add", "remove"}:
         return (
             f"/permissions {subcommand} is not yet implemented via CLI. "
             "Use the permission pipeline API directly."
         )
 
-    return f"Unknown subcommand: {subcommand!r}. Usage: /permissions list|reset|add|remove"
+    return (
+        f"Unknown subcommand: {subcommand!r}. Usage: /permissions list|reset|add|remove"
+    )
 
 
-async def handle_dream(
-    app: Any,
-    args: str,
+async def handle_dream(  # noqa: RUF029
+    app: Any,  # noqa: ANN401, ARG001
+    args: str,  # noqa: ARG001
     *,
     consolidator: DreamConsolidator | None = None,
 ) -> str:
@@ -204,7 +207,7 @@ async def handle_dream(
 
     Args:
         app: The CLI application instance.
-        args: Unused argument string.
+        args: Unused argument string (reserved for handler interface).
         consolidator: Dream consolidator instance.
 
     Returns:
@@ -221,17 +224,21 @@ async def handle_dream(
     if not entries:
         return "Dream consolidation complete. No new patterns found."
 
-    lines: list[str] = [f"Dream consolidation complete. {len(entries)} new memories:"]
-    for entry in entries:
-        lines.append(f"  [{entry.category.value}] {entry.description}")
+    lines: list[str] = [
+        f"Dream consolidation complete. {len(entries)} new memories:",
+    ]
+    lines.extend(f"  [{entry.category.value}] {entry.description}" for entry in entries)
     return "\n".join(lines)
 
 
-async def handle_worktree(app: Any, args: str) -> str:
+async def handle_worktree(
+    app: Any,  # noqa: ANN401, ARG001
+    args: str,
+) -> str:
     """Manage git worktrees: create, list, or remove.
 
     Delegates to git worktree CLI commands. Subcommands mirror
-    ``git worktree create|list|remove``.
+    `git worktree create|list|remove`.
 
     Args:
         app: The CLI application instance.
@@ -248,13 +255,16 @@ async def handle_worktree(app: Any, args: str) -> str:
 
     if subcommand == "list":
         proc = await asyncio.create_subprocess_exec(
-            "git", "worktree", "list",
+            "git",
+            "worktree",
+            "list",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
-            return f"git worktree list failed: {stderr.decode().strip()}"
+            msg = stderr.decode().strip()
+            return f"git worktree list failed: {msg}"
         return stdout.decode().strip() or "No worktrees found."
 
     if subcommand == "create":
@@ -264,7 +274,12 @@ async def handle_worktree(app: Any, args: str) -> str:
         branch = create_parts[0]
         path = create_parts[1] if len(create_parts) > 1 else f"../{branch}"
         proc = await asyncio.create_subprocess_exec(
-            "git", "worktree", "add", path, "-b", branch,
+            "git",
+            "worktree",
+            "add",
+            path,
+            "-b",
+            branch,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -277,8 +292,12 @@ async def handle_worktree(app: Any, args: str) -> str:
     if subcommand == "remove":
         if not sub_args:
             return "Usage: /worktree remove <path>"
+        target = sub_args.strip()
         proc = await asyncio.create_subprocess_exec(
-            "git", "worktree", "remove", sub_args.strip(),
+            "git",
+            "worktree",
+            "remove",
+            target,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -286,12 +305,15 @@ async def handle_worktree(app: Any, args: str) -> str:
         output = (stdout.decode() + stderr.decode()).strip()
         if proc.returncode != 0:
             return f"git worktree remove failed: {output}"
-        return output or f"Worktree at {sub_args.strip()} removed."
+        return output or f"Worktree at {target} removed."
 
     return "Usage: /worktree create|list|remove"
 
 
-async def handle_review(app: Any, args: str) -> str:
+async def handle_review(  # noqa: RUF029
+    app: Any,  # noqa: ANN401, ARG001
+    args: str,
+) -> str:
     """Spawn a Review agent on current changes.
 
     Formats a message that instructs the agent framework to spawn a
@@ -307,7 +329,7 @@ async def handle_review(app: Any, args: str) -> str:
     from deepagents.agents.profiles import AgentType, get_profile
 
     profile = get_profile(AgentType.REVIEW)
-    focus = args.strip() if args.strip() else "all current changes"
+    focus = args.strip() or "all current changes"
     return (
         f"Spawning {profile.name} agent to review: {focus}\n"
         f"Tools: {', '.join(sorted(profile.allowed_tools))}\n"
@@ -315,7 +337,10 @@ async def handle_review(app: Any, args: str) -> str:
     )
 
 
-async def handle_security(app: Any, args: str) -> str:
+async def handle_security(  # noqa: RUF029
+    app: Any,  # noqa: ANN401, ARG001
+    args: str,
+) -> str:
     """Spawn a security-focused review agent.
 
     Uses the Review agent profile with a security focus hint.
@@ -330,7 +355,7 @@ async def handle_security(app: Any, args: str) -> str:
     from deepagents.agents.profiles import AgentType, get_profile
 
     profile = get_profile(AgentType.REVIEW)
-    scope = args.strip() if args.strip() else "all current changes"
+    scope = args.strip() or "all current changes"
     return (
         f"Spawning security-focused {profile.name} agent on: {scope}\n"
         f"Focus: vulnerability scanning, secret exposure, injection risks\n"
@@ -339,9 +364,9 @@ async def handle_security(app: Any, args: str) -> str:
     )
 
 
-async def handle_compact(
-    app: Any,
-    args: str,
+async def handle_compact(  # noqa: RUF029
+    app: Any,  # noqa: ANN401, ARG001
+    args: str,  # noqa: ARG001
     *,
     monitor: CompactionMonitor | None = None,
 ) -> str:
@@ -349,7 +374,7 @@ async def handle_compact(
 
     Args:
         app: The CLI application instance.
-        args: Unused argument string.
+        args: Unused argument string (reserved for handler interface).
         monitor: Compaction monitor for checking current token usage.
 
     Returns:
@@ -365,28 +390,34 @@ async def handle_compact(
     )
 
 
-async def handle_agents(app: Any, args: str) -> str:
+async def handle_agents(  # noqa: RUF029
+    app: Any,  # noqa: ANN401, ARG001
+    args: str,  # noqa: ARG001
+) -> str:
     """List available agent types and their tools.
 
     Args:
         app: The CLI application instance.
-        args: Unused argument string.
+        args: Unused argument string (reserved for handler interface).
 
     Returns:
         Formatted list of agent profiles.
     """
     from deepagents.agents.profiles import AgentType, get_profile
 
-    lines: list[str] = ["Available Agent Types"]
-    lines.append("=" * 40)
+    lines: list[str] = ["Available Agent Types", "=" * 40]
 
     for agent_type in AgentType:
         profile = get_profile(agent_type)
         tools = ", ".join(sorted(profile.allowed_tools))
-        lines.append(f"\n  {profile.name} ({agent_type.value})")
-        lines.append(f"    {profile.description}")
-        lines.append(f"    Model tier: {profile.model_tier}")
-        lines.append(f"    Max turns: {profile.max_turns}")
-        lines.append(f"    Tools: {tools}")
+        lines.extend(
+            [
+                f"\n  {profile.name} ({agent_type.value})",
+                f"    {profile.description}",
+                f"    Model tier: {profile.model_tier}",
+                f"    Max turns: {profile.max_turns}",
+                f"    Tools: {tools}",
+            ]
+        )
 
     return "\n".join(lines)

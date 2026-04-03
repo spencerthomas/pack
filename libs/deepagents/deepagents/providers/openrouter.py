@@ -131,11 +131,26 @@ class OpenRouterProvider:
         _, resolved_model = parse_model_string(model or self._default_model)
         merged_kwargs = {**self._model_kwargs, **kwargs}
 
+        # Filter out kwargs that ChatOpenAI doesn't accept
+        # (e.g., app_url, app_title from OpenRouter attribution defaults)
+        _UNSUPPORTED_KWARGS = {"app_url", "app_title", "app_categories"}  # noqa: N806
+        filtered_kwargs = {k: v for k, v in merged_kwargs.items() if k not in _UNSUPPORTED_KWARGS}
+
+        # Pass attribution headers via default_headers instead
+        headers: dict[str, str] = {}
+        if "app_url" in merged_kwargs:
+            headers["HTTP-Referer"] = str(merged_kwargs["app_url"])
+        if "app_title" in merged_kwargs:
+            headers["X-Title"] = str(merged_kwargs["app_title"])
+        if headers:
+            existing = filtered_kwargs.get("default_headers", {})
+            filtered_kwargs["default_headers"] = {**existing, **headers}
+
         return ChatOpenAI(
             model=resolved_model,
             openai_api_key=self._api_key,
             openai_api_base=OPENROUTER_BASE_URL,
-            **merged_kwargs,
+            **filtered_kwargs,
         )
 
     def create_auxiliary_model(

@@ -37,24 +37,21 @@ class CostMiddleware(AgentMiddleware):
         """Access the cost tracker."""
         return self._tracker
 
-    async def wrap_model_call(
+    async def awrap_model_call(
         self,
-        request: ModelRequest,
-        config: RunnableConfig,
-        *,
-        next: Any,
-    ) -> ModelResponse:
+        request: Any,
+        handler: Any,
+    ) -> Any:
         """Intercept model calls to record token usage.
 
         Args:
             request: The model request being sent.
-            config: Runtime configuration.
-            next: The next middleware or model call.
+            handler: Async callback that executes the model request.
 
         Returns:
             The model response, unmodified.
         """
-        response = await next(request, config)
+        response = await handler(request)
 
         # Extract token usage from response metadata
         try:
