@@ -1,9 +1,8 @@
 """Handler implementations for Pack-specific slash commands.
 
 Each handler is an async function that takes an ``app`` instance and
-an ``args`` string. Stateful dependencies (cost tracker, rule store,
-collapser, etc.) are accepted as optional keyword parameters with
-``None`` defaults -- they will be wired by the application layer later.
+an ``args`` string. Handlers access runtime state via the PackState
+singleton (deferred import for startup performance).
 
 Heavy imports (deepagents SDK modules) are deferred to function bodies
 to keep CLI startup fast (see AGENTS.md startup-performance rules).
@@ -18,14 +17,24 @@ if TYPE_CHECKING:
     from deepagents.compaction.monitor import CompactionMonitor
     from deepagents.cost.tracker import CostTracker
     from deepagents.memory.dream import DreamConsolidator
+    from deepagents.middleware.pack.state import PackState
     from deepagents.permissions.rules import RuleStore
+
+
+def _pack_state() -> PackState | None:
+    """Get the Pack runtime state (deferred import).
+
+    Returns:
+        PackState singleton or None if Pack is not active.
+    """
+    from deepagents.middleware.pack.state import get_state
+
+    return get_state()
 
 
 async def handle_cost(  # noqa: RUF029
     app: Any,  # noqa: ANN401, ARG001
     args: str,  # noqa: ARG001
-    *,
-    tracker: CostTracker | None = None,
 ) -> str:
     """Format and display cost tracker summary.
 
@@ -35,13 +44,14 @@ async def handle_cost(  # noqa: RUF029
     Args:
         app: The CLI application instance.
         args: Unused argument string (reserved for handler interface).
-        tracker: Active cost tracker for the session.
 
     Returns:
         Formatted cost summary string.
     """
+    state = _pack_state()
+    tracker = state.cost_tracker if state else None
     if tracker is None:
-        return "No cost tracker is active for this session."
+        return "Pack harness is not active. Set PACK_ENABLED=1."
 
     from deepagents.cost.display import format_cost, format_tokens
 
@@ -76,21 +86,20 @@ async def handle_cost(  # noqa: RUF029
 async def handle_budget(  # noqa: RUF029
     app: Any,  # noqa: ANN401, ARG001
     args: str,
-    *,
-    tracker: CostTracker | None = None,
 ) -> str:
     """Parse amount and set budget on the cost tracker.
 
     Args:
         app: The CLI application instance.
         args: Budget amount in USD (e.g. "5.00" or "10").
-        tracker: Active cost tracker for the session.
 
     Returns:
         Confirmation or error message.
     """
+    state = _pack_state()
+    tracker = state.cost_tracker if state else None
     if tracker is None:
-        return "No cost tracker is active for this session."
+        return "Pack harness is not active. Set PACK_ENABLED=1."
 
     stripped = args.strip().lstrip("$")
     if not stripped:
@@ -118,21 +127,20 @@ async def handle_budget(  # noqa: RUF029
 async def handle_expand(  # noqa: RUF029
     app: Any,  # noqa: ANN401, ARG001
     args: str,
-    *,
-    collapser: ContextCollapser | None = None,
 ) -> str:
     """Re-expand a collapsed tool result by its ID.
 
     Args:
         app: The CLI application instance.
         args: Collapse entry ID to expand.
-        collapser: Context collapser managing collapsed entries.
 
     Returns:
         Original content or error message.
     """
+    state = _pack_state()
+    collapser = state.collapser if state else None
     if collapser is None:
-        return "Context collapser is not active."
+        return "Pack harness is not active. Set PACK_ENABLED=1."
 
     entry_id = args.strip()
     if not entry_id:
@@ -151,21 +159,21 @@ async def handle_expand(  # noqa: RUF029
 async def handle_permissions(  # noqa: RUF029
     app: Any,  # noqa: ANN401, ARG001
     args: str,
-    *,
-    rule_store: RuleStore | None = None,
 ) -> str:
     """Manage permission rules: list, reset, add, or remove.
 
     Args:
         app: The CLI application instance.
         args: Subcommand string (list|reset|add|remove).
-        rule_store: Rule store managing persisted permission rules.
 
     Returns:
         Result message.
     """
-    if rule_store is None:
-        return "Permission rule store is not active."
+    state = _pack_state()
+    pipeline = state.permission_pipeline if state else None
+    if pipeline is None:
+        return "Pack harness is not active. Set PACK_ENABLED=1."
+    rule_store = pipeline._rules
 
     parts = args.strip().split(maxsplit=1)
     subcommand = parts[0].lower() if parts else "list"
@@ -200,21 +208,27 @@ async def handle_permissions(  # noqa: RUF029
 async def handle_dream(  # noqa: RUF029
     app: Any,  # noqa: ANN401, ARG001
     args: str,  # noqa: ARG001
-    *,
-    consolidator: DreamConsolidator | None = None,
 ) -> str:
     """Trigger memory consolidation from recent session transcripts.
 
     Args:
         app: The CLI application instance.
         args: Unused argument string (reserved for handler interface).
-        consolidator: Dream consolidator instance.
 
     Returns:
         Summary of consolidation results.
     """
-    if consolidator is None:
-        return "Dream consolidator is not configured."
+    state = _pack_state()
+    if state is None:
+        return "Pack harness is not active. Set PACK_ENABLED=1."
+
+    from deepagents.memory.dream import DreamConsolidator
+    from pathlib import Path
+
+    consolidator = DreamConsolidator(
+        transcripts_dir=Path(state.data_dir) / "transcripts",
+        memory_dir=Path(state.data_dir) / "memories",
+    )
 
     transcripts = consolidator.find_recent_transcripts()
     if not transcripts:
@@ -367,21 +381,20 @@ async def handle_security(  # noqa: RUF029
 async def handle_compact(  # noqa: RUF029
     app: Any,  # noqa: ANN401, ARG001
     args: str,  # noqa: ARG001
-    *,
-    monitor: CompactionMonitor | None = None,
 ) -> str:
     """Manually trigger context compaction.
 
     Args:
         app: The CLI application instance.
         args: Unused argument string (reserved for handler interface).
-        monitor: Compaction monitor for checking current token usage.
 
     Returns:
         Compaction status message.
     """
+    state = _pack_state()
+    monitor = state.compaction_monitor if state else None
     if monitor is None:
-        return "Compaction monitor is not active."
+        return "Pack harness is not active. Set PACK_ENABLED=1."
 
     return (
         f"Context compaction triggered.\n"

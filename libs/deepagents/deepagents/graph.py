@@ -341,10 +341,12 @@ def create_deep_agent(  # noqa: C901, PLR0912, PLR0915  # Complex graph assembly
         deepagent_middleware.extend(middleware)
 
     # --- Pack harness middleware ---
-    # Order: hooks → permissions → cost → compaction
-    # (hooks wrap everything, permissions gate tools, cost tracks usage,
-    #  compaction manages context before model calls)
-    _add_pack_middleware(deepagent_middleware)
+    # Order: hooks → cost → permissions → compaction
+    # Hooks wrap everything, cost tracks usage, permissions gate tools,
+    # compaction manages context before model calls.
+    # auto_approve=True when interrupt_on is empty (CLI's -y flag).
+    _pack_auto_approve = interrupt_on is not None and len(interrupt_on) == 0
+    _add_pack_middleware(deepagent_middleware, auto_approve=_pack_auto_approve)
 
     # Caching + memory after all other middleware so memory updates don't
     # invalidate the Anthropic prompt cache prefix.
@@ -387,7 +389,11 @@ def create_deep_agent(  # noqa: C901, PLR0912, PLR0915  # Complex graph assembly
     )
 
 
-def _add_pack_middleware(stack: list[AgentMiddleware[Any, Any, Any]]) -> None:
+def _add_pack_middleware(
+    stack: list[AgentMiddleware[Any, Any, Any]],
+    *,
+    auto_approve: bool = False,
+) -> None:
     """Add Pack harness middleware to the agent middleware stack.
 
     Only activates when PACK_ENABLED=1 is set (the CLI sets this
@@ -396,39 +402,81 @@ def _add_pack_middleware(stack: list[AgentMiddleware[Any, Any, Any]]) -> None:
 
     Args:
         stack: Middleware list to extend in-place.
+        auto_approve: If True, permission pipeline passes everything through.
     """
     if not os.environ.get("PACK_ENABLED"):
         return
 
-    # Cost tracking — always enabled, zero cost if pricing unknown
+    data_dir = Path(os.environ.get("PACK_DATA_DIR", str(Path.home() / ".pack")))
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    # Cost tracking
     from deepagents.cost.tracker import CostTracker
     from deepagents.middleware.pack.cost_middleware import CostMiddleware
 
     cost_tracker = CostTracker()
     stack.append(CostMiddleware(cost_tracker))
 
-    # Permission pipeline — deterministic rules, no LLM needed
+    # Permission pipeline
     from deepagents.middleware.pack.permission_middleware import PermissionMiddleware
     from deepagents.permissions.classifier import PermissionClassifier
     from deepagents.permissions.pipeline import PermissionPipeline
     from deepagents.permissions.rules import RuleStore
 
-    rules_dir = Path(os.environ.get("PACK_DATA_DIR", str(Path.home() / ".pack")))
-    rules_dir = Path(rules_dir)
-    rules_dir.mkdir(parents=True, exist_ok=True)
-    rule_store = RuleStore(rules_dir / "permission_rules.json")
+    rule_store = RuleStore(data_dir / "permission_rules.json")
     pipeline = PermissionPipeline(rule_store, PermissionClassifier())
-    stack.append(PermissionMiddleware(pipeline))
+    stack.append(PermissionMiddleware(pipeline, auto_approve=auto_approve))
 
-    # Context compaction — proactive monitoring
+    # Context compaction
     from deepagents.compaction.context_collapse import ContextCollapser
     from deepagents.compaction.monitor import CompactionMonitor
     from deepagents.middleware.pack.compaction_middleware import CompactionMiddleware
 
-    collapse_dir = rules_dir / "collapsed"
+    collapse_dir = data_dir / "collapsed"
     collapse_dir.mkdir(parents=True, exist_ok=True)
     monitor = CompactionMonitor(context_window=200_000)
     collapser = ContextCollapser(collapse_dir)
     stack.append(CompactionMiddleware(monitor, collapser))
 
-    logger.debug("Pack harness middleware added: cost, permissions, compaction")
+    # Hooks — load from ~/.pack/hooks.json if present
+    hook_engine = None
+    hooks_file = data_dir / "hooks.json"
+    if hooks_file.exists():
+        try:
+            import json
+
+            from deepagents.hooks.engine import HookDefinition, HookEngine
+            from deepagents.hooks.events import HookEvent
+            from deepagents.middleware.pack.hooks_middleware import HooksMiddleware
+
+            raw = json.loads(hooks_file.read_text())
+            hooks = [
+                HookDefinition(
+                    event=HookEvent(h["event"]),
+                    command=h["command"],
+                    tool_filter=h.get("tool_filter"),
+                    inject_output=h.get("inject_output", False),
+                    blocking=h.get("blocking", False),
+                    timeout=h.get("timeout", 10),
+                )
+                for h in raw
+            ]
+            hook_engine = HookEngine(hooks=hooks)
+            stack.insert(0, HooksMiddleware(hook_engine))  # First position — wraps everything
+            logger.debug("Loaded %d hooks from %s", len(hooks), hooks_file)
+        except Exception:  # noqa: BLE001
+            logger.warning("Failed to load hooks from %s", hooks_file, exc_info=True)
+
+    # Store state for CLI slash command access
+    from deepagents.middleware.pack.state import PackState, set_state
+
+    set_state(PackState(
+        cost_tracker=cost_tracker,
+        permission_pipeline=pipeline,
+        collapser=collapser,
+        compaction_monitor=monitor,
+        hook_engine=hook_engine,
+        data_dir=str(data_dir),
+    ))
+
+    logger.debug("Pack harness middleware added: cost, permissions, compaction, hooks")

@@ -9,10 +9,15 @@ from deepagents.middleware.pack.compaction_middleware import CompactionMiddlewar
 from deepagents.middleware.pack.cost_middleware import CostMiddleware
 from deepagents.middleware.pack.hooks_middleware import HooksMiddleware
 from deepagents.middleware.pack.permission_middleware import PermissionMiddleware
+from deepagents.middleware.pack.state import PackState, clear_state, get_state, set_state
 
 __all__ = [
     "CompactionMiddleware",
     "CostMiddleware",
     "HooksMiddleware",
+    "PackState",
     "PermissionMiddleware",
+    "clear_state",
+    "get_state",
+    "set_state",
 ]
