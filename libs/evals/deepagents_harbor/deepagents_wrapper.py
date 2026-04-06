@@ -233,19 +233,32 @@ class DeepAgentsWrapper(BaseAgent):
 
         # Create agent based on mode (CLI vs SDK)
         if self._use_cli_agent:
-            # Get Harbor's system prompt with directory context
+            # Get Harbor's directory context to append to the CLI's system prompt
             harbor_system_prompt = await self._get_formatted_system_prompt(backend)
 
-            # Use CLI agent with auto-approve mode
+            # Build the full system prompt: CLI's hardened non-interactive prompt
+            # (with verify-after-write, compute-with-tools, exact-naming rules)
+            # + Harbor's directory context appended at the end.
+            from deepagents_cli.agent import get_system_prompt
+
+            cli_prompt = get_system_prompt(
+                assistant_id=environment.session_id,
+                sandbox_type=None,
+                interactive=False,  # Activate non-interactive hardening rules
+            )
+            combined_prompt = cli_prompt + "\n\n" + harbor_system_prompt
+
+            # Use CLI agent with auto-approve mode and non-interactive hardening
             deep_agent, _ = create_cli_agent(
                 model=self._model,
                 assistant_id=environment.session_id,
                 sandbox=backend,
                 sandbox_type=None,
-                system_prompt=harbor_system_prompt,  # Use Harbor's custom prompt
+                system_prompt=combined_prompt,
+                interactive=False,  # Activates middleware: edit verification, syntax check, leak detection
                 auto_approve=True,  # Skip HITL in Harbor
                 enable_memory=False,
-                enable_skills=False,  # Disable CLI skills for now
+                enable_skills=False,
                 enable_shell=False,  # Sandbox provides execution
             )
         else:
