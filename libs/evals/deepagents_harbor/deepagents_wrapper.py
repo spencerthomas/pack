@@ -115,40 +115,18 @@ load_dotenv()
 
 _MAX_FILE_LISTING = 10  # maximum files shown in the system prompt directory context
 
-SYSTEM_MESSAGE = """\
-You are an expert autonomous agent executing tasks in a sandboxed Linux environment. Complete the task fully and autonomously. There is no human to answer questions.
+HARBOR_PREAMBLE = """\
+You are running inside a sandboxed benchmark environment. Complete the task fully and autonomously.
 
-## Core Rules
+## Benchmark-Specific Rules
 
-- **Verify after every write.** After writing a file, confirm it exists and is non-empty. After running a shell command, check the exit code and inspect output for errors.
-- **Compute with tools, not reasoning.** When a task involves arithmetic, byte operations, data transforms, or processing structured data — write and execute a script. Never attempt computation in your text response.
-- **Use exact names.** Use exact identifiers, class names, file paths, and field names specified in the task. Do not rename or "improve" them.
-- **Read the task name carefully.** The task name often contains the key action (e.g., "break-filter" means bypass/defeat the filter, not build one).
-- **Code goes in files.** Never write code only in your text response. All code must go into files via write/patch or be executed via shell.
-- **Read more, not less.** If a file read appears truncated, read the next section or use grep to find relevant patterns. Never conclude a file lacks content from only the first 100 lines.
-- **Parallel tool calls.** When you need multiple independent operations, invoke all relevant tools simultaneously.
-- **No questions.** Do not ask follow-up questions or suggest manual steps. Make reasonable assumptions and proceed.
-- **Non-interactive commands.** Always use non-interactive variants: `apt-get install -y`, `npm init -y`, `yes |`, etc.
-
-## Task Management
-
-ALWAYS create a task plan before starting work. Break the task into steps using the todo tool. Mark each step complete ONLY after executing AND verifying it works. Do not batch completions. If a step fails, add a new step for the fix rather than silently retrying the same approach.
-
-## Performance Tasks
-
-When the task mentions "faster", "speed", "performance", "optimize", or "benchmark":
-1. Write your initial implementation
-2. Run the benchmark or timing test provided
-3. If not fast enough, analyze bottlenecks and optimize
-4. Repeat until the performance target is met or you've tried 3 different approaches
-Never submit a performance-sensitive solution without benchmarking it first.
-
-## When Things Go Wrong
-
-- If a tool call fails, STOP and reflect: What went wrong? Why? What specific change will you make?
-- If you've tried the same approach 3 times without progress, try a fundamentally different strategy.
+- Read the task name carefully — the name often contains the key action (e.g., "break-filter" means bypass/defeat the filter, not build one).
+- Use exact identifiers, class names, file paths, and field names specified in the task. Do not rename them.
+- When the task mentions "faster", "speed", "performance", or "benchmark": write your solution, run the benchmark, and iterate until the target is met.
+- Your context is automatically managed through summarization — you always have room. Keep working until the objective is fully complete. Do not stop early.
+- All file paths must be absolute. Work in /app unless instructed otherwise.
+- Always use non-interactive command variants: `apt-get install -y`, `npm init -y`, etc.
 - If a shell command fails with a network error, retry it once before giving up.
-- Work backwards from the user's goal. Don't keep retrying the same broken approach.
 
 ## Environment
 
@@ -157,8 +135,6 @@ Your current working directory is:
 
 {file_listing_header}
 {file_listing}
-
-Work in /app unless explicitly instructed otherwise. All file paths must be absolute.
 """
 
 
@@ -293,8 +269,8 @@ class DeepAgentsWrapper(BaseAgent):
             )
             file_listing = "\n".join(f"{i + 1}. {file}" for i, file in enumerate(first_files))
 
-        # Format the system prompt with context
-        return SYSTEM_MESSAGE.format(
+        # Format the Harbor preamble with environment context
+        return HARBOR_PREAMBLE.format(
             current_directory=current_dir.strip() if current_dir else "/app",
             file_listing_header=file_listing_header,
             file_listing=file_listing,
@@ -329,20 +305,25 @@ class DeepAgentsWrapper(BaseAgent):
 
         # Create agent based on mode (CLI vs SDK)
         if self._use_cli_agent:
-            # Use the slim Harbor-specific prompt (not the 300-line CLI prompt)
-            harbor_system_prompt = await self._get_formatted_system_prompt(backend)
+            # Activate Pack's full middleware stack (compaction, memory, hooks)
+            os.environ["PACK_ENABLED"] = "1"
+
+            # Build prompt: Pack's native prompt (via get_system_prompt) handles
+            # core behavioral rules. We append a Harbor-specific preamble with
+            # benchmark context and environment details.
+            harbor_context = await self._get_formatted_system_prompt(backend)
 
             deep_agent, _ = create_cli_agent(
                 model=self._model,
                 assistant_id=environment.session_id,
                 sandbox=backend,
                 sandbox_type=None,
-                system_prompt=harbor_system_prompt,
+                system_prompt=harbor_context,  # Pack builds its own base prompt; this adds Harbor context
                 interactive=False,  # Activates middleware: edit verification, syntax check, leak detection, doom loop
                 auto_approve=True,
-                enable_memory=False,
-                enable_skills=False,
-                enable_shell=False,
+                enable_memory=True,  # Activate Pack's memory system
+                enable_skills=True,  # Activate Pack's skills system
+                enable_shell=False,  # Sandbox provides execution
             )
         else:
             # Use SDK agent

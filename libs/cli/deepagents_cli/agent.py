@@ -470,12 +470,13 @@ class DoomLoopDetectionMiddleware(AgentMiddleware):
 class ErrorReflectionMiddleware(AgentMiddleware):
     """Force the agent to reflect on tool failures before retrying.
 
-    When a tool call returns an error (non-zero exit code, error status,
-    or failure indicator in content), appends a reflection prompt demanding
-    the agent analyze what went wrong before making the next call.
+    When a tool call returns an error, appends a reflection prompt with
+    remaining attempt count (ForgeCode pattern). After ``max_failures``
+    errors in a turn, the reflection escalates to "change strategy."
     """
 
     _SHELL_TOOL_NAMES = frozenset({"execute", "shell"})
+    _MAX_FAILURES = 5
     _ERROR_INDICATORS = (
         "error:",
         "Error:",
@@ -502,20 +503,36 @@ class ErrorReflectionMiddleware(AgentMiddleware):
                 return True
         return False
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._failure_count = 0
+
     def _inject_reflection(self, result: ToolMessage | Command[Any]) -> ToolMessage | Command[Any]:
         from langchain_core.messages import ToolMessage as LCToolMessage
 
         if not isinstance(result, LCToolMessage):
             return result
-        reflection = (
-            "\n\n⚠️ TOOL FAILED. Before retrying, you MUST reflect:\n"
-            "1. What exactly went wrong with this tool call?\n"
-            "2. Why did it fail — wrong tool, wrong arguments, or wrong approach?\n"
-            "3. What specific change will you make before retrying?\n"
-            "Do NOT retry the same command without changes."
-        )
+
+        self._failure_count += 1
+        remaining = max(0, self._MAX_FAILURES - self._failure_count)
+
+        if remaining == 0:
+            escalation = (
+                "\n\n🛑 ERROR BUDGET EXHAUSTED. You have failed {n} tool calls this session. "
+                "You MUST change your fundamental approach. Do NOT continue with the same strategy."
+            ).format(n=self._failure_count)
+        else:
+            escalation = (
+                "\n\n⚠️ TOOL FAILED ({n}/{max} failures, {r} remaining). "
+                "Before retrying, you MUST reflect:\n"
+                "1. What exactly went wrong with this tool call?\n"
+                "2. Why did it fail — wrong tool, wrong arguments, or wrong approach?\n"
+                "3. What specific change will you make before retrying?\n"
+                "Do NOT retry the same command without changes."
+            ).format(n=self._failure_count, max=self._MAX_FAILURES, r=remaining)
+
         return LCToolMessage(
-            content=f"{result.content}{reflection}" if isinstance(result.content, str) else str(result.content) + reflection,
+            content=f"{result.content}{escalation}" if isinstance(result.content, str) else str(result.content) + escalation,
             name=result.name,
             tool_call_id=result.tool_call_id,
             status=getattr(result, "status", None),
@@ -542,6 +559,110 @@ class ErrorReflectionMiddleware(AgentMiddleware):
         if self._needs_reflection(result, tool_name):
             return self._inject_reflection(result)
         return result
+
+
+class RequestBudgetMiddleware(AgentMiddleware):
+    """Track model call count and inject budget-awareness prompts.
+
+    Injects system reminders at 50%, 75%, and 90% of the request budget
+    so the agent can prioritize and wrap up gracefully. Follows ForgeCode's
+    ``max_requests_per_turn: 100`` pattern.
+    """
+
+    def __init__(self, max_requests: int = 100) -> None:
+        super().__init__()
+        self._max = max_requests
+        self._count = 0
+        self._notified: set[int] = set()
+
+    def _log_budget(self) -> None:
+        """Log budget status at threshold crossings."""
+        self._count += 1
+        pct = int(self._count / self._max * 100)
+
+        for threshold in (50, 75, 90):
+            if pct >= threshold and threshold not in self._notified:
+                self._notified.add(threshold)
+                level = "warning" if threshold < 90 else "error"
+                getattr(logger, level)(
+                    "Request budget: %d/%d (%d%%) used",
+                    self._count,
+                    self._max,
+                    pct,
+                )
+                break
+
+    def wrap_model_call(self, messages: list, handler: Callable) -> Any:
+        self._log_budget()
+        return handler(messages)
+
+    async def awrap_model_call(self, messages: list, handler: Callable) -> Any:
+        self._log_budget()
+        return await handler(messages)
+
+
+class ReadBeforeWriteMiddleware(AgentMiddleware):
+    """Enforce read-before-edit at the tool level.
+
+    Tracks which files have been read in the current session. Blocks
+    ``edit_file`` calls on files that haven't been read first, returning
+    an actionable error. ``write_file`` (full overwrites) is allowed
+    without prior read since the agent is creating the entire content.
+    """
+
+    _READ_TOOLS = frozenset({"read_file", "read"})
+    _EDIT_TOOLS = frozenset({"edit_file", "edit", "patch"})
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._read_files: set[str] = set()
+
+    def _check(self, request: ToolCallRequest) -> ToolMessage | None:
+        from langchain_core.messages import ToolMessage as LCToolMessage
+
+        name = request.tool_call.get("name", "")
+        args = request.tool_call.get("args") or {}
+
+        # Track reads
+        if name in self._READ_TOOLS:
+            path = args.get("file_path", "") or args.get("path", "")
+            if path:
+                self._read_files.add(path)
+            return None
+
+        # Enforce read-before-edit
+        if name in self._EDIT_TOOLS:
+            path = args.get("file_path", "") or args.get("path", "")
+            if path and path not in self._read_files:
+                return LCToolMessage(
+                    content=(
+                        f"⚠️ You must read '{path}' before editing it. "
+                        "Use read_file first to understand the current content, "
+                        "then retry your edit."
+                    ),
+                    name=name,
+                    tool_call_id=request.tool_call.get("id", ""),
+                    status="error",
+                )
+        return None
+
+    def wrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], ToolMessage | Command[Any]],
+    ) -> ToolMessage | Command[Any]:
+        if (rejection := self._check(request)) is not None:
+            return rejection
+        return handler(request)
+
+    async def awrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
+    ) -> ToolMessage | Command[Any]:
+        if (rejection := self._check(request)) is not None:
+            return rejection
+        return await handler(request)
 
 
 def load_async_subagents(config_path: Path | None = None) -> list[AsyncSubAgent]:
@@ -1597,10 +1718,12 @@ def create_cli_agent(
         agent_middleware.append(ShellAllowListMiddleware(restrictive_shell_allow_list))
         shell_middleware_added = True
 
-    # Always-on tool result middleware: edit verification, doom loop, error reflection
+    # Always-on tool result middleware
     agent_middleware.append(EditVerificationMiddleware())
+    agent_middleware.append(ReadBeforeWriteMiddleware())
     agent_middleware.append(DoomLoopDetectionMiddleware())
     agent_middleware.append(ErrorReflectionMiddleware())
+    agent_middleware.append(RequestBudgetMiddleware(max_requests=100))
     if not interactive:
         agent_middleware.append(PythonSyntaxCheckMiddleware())
         agent_middleware.append(ToolCallLeakDetectionMiddleware())
