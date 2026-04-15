@@ -72,5 +72,6 @@
     {
       "file": ".github/workflows/pr_lint.yml"
     }
-  ]
+  ],
+  "snyk.advanced.autoSelectOrganization": true
 }
