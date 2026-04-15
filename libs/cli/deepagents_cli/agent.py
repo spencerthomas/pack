@@ -50,6 +50,7 @@ from deepagents_cli.config import (
 )
 from deepagents_cli.configurable_model import ConfigurableModelMiddleware
 from deepagents_cli.integrations.sandbox_factory import get_default_working_dir
+from deepagents_cli.loop_detection import LoopDetectionMiddleware
 from deepagents_cli.local_context import (
     LocalContextMiddleware,
     _AsyncExecutableBackend,
@@ -1741,7 +1742,11 @@ def create_cli_agent(
     # Always-on tool result middleware
     agent_middleware.append(EditVerificationMiddleware())
     agent_middleware.append(ReadBeforeWriteMiddleware())
+    # Two complementary loop detectors: DoomLoop catches tight same-tool-same-args
+    # repeats (any tool, stateful); LoopDetection catches slow file-edit thrashing
+    # (8/12 edits on the same path, stateless — survives checkpoint/resume).
     agent_middleware.append(DoomLoopDetectionMiddleware())
+    agent_middleware.append(LoopDetectionMiddleware())
     agent_middleware.append(ErrorReflectionMiddleware())
     agent_middleware.append(RequestBudgetMiddleware(max_requests=100))
     if not interactive:
