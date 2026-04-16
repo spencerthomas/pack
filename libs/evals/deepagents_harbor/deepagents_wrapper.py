@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import uuid
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -40,13 +41,96 @@ if TYPE_CHECKING:
 from deepagents_harbor.backend import HarborSandbox
 from deepagents_harbor.metadata import InfraMetadata, collect_sandbox_metadata
 
+_FAILURE_EXCEPTION_MAX_LEN = 2048  # keep the repr small in trajectory JSON
+
+
+@dataclass(frozen=True)
+class _FailureInfo:
+    """Structured record of why an invocation terminated unsuccessfully.
+
+    Serialized into ``trajectory.extra["failure"]`` so post-mortem tooling
+    (e.g. ``skills/langsmith-trace-analyzer/``) can cluster failures by
+    reason and exception class without re-parsing logs.
+    """
+
+    reason: str  # "retry_exhausted" | "non_retryable" | "unknown"
+    exception_type: str
+    attempts: int
+    final_exception_repr: str
+
+
+def _build_failure_info(exc: BaseException, *, attempts: int, reason: str) -> _FailureInfo:
+    repr_str = repr(exc)
+    if len(repr_str) > _FAILURE_EXCEPTION_MAX_LEN:
+        repr_str = repr_str[: _FAILURE_EXCEPTION_MAX_LEN - 3] + "..."
+    return _FailureInfo(
+        reason=reason,
+        exception_type=type(exc).__name__,
+        attempts=attempts,
+        final_exception_repr=repr_str,
+    )
+
+
 _RETRY_MAX_ATTEMPTS = 3
 _RETRY_BASE_DELAY = 2.0  # seconds
-_RETRYABLE_ERRORS = (
+_RETRY_JITTER_MAX = 0.5  # seconds
+_RETRY_CHAIN_MAX_DEPTH = 10  # guards against cyclic __cause__ chains
+
+_RETRYABLE_ERROR_TYPES: tuple[type[BaseException], ...] = (
     ConnectionError,
     TimeoutError,
     OSError,
 )
+
+# Only consulted as a fallback when the exception type is a bare generic
+# ``Exception`` or ``RuntimeError`` — provider SDKs sometimes raise these
+# with disconnect wording instead of a proper ``ConnectionError``.
+_DISCONNECT_MARKERS: tuple[str, ...] = (
+    "server disconnected",
+    "connection reset",
+    "eof",
+    "broken pipe",
+)
+_GENERIC_ERROR_TYPES: tuple[type[BaseException], ...] = (Exception, RuntimeError)
+
+
+def _is_transient_error(exc: BaseException) -> bool:
+    """Return True if ``exc`` looks like a transient I/O failure worth retrying.
+
+    Checks, in order:
+    1. The exception (or any exception in its ``__cause__`` / ``__context__``
+       chain, up to ``_RETRY_CHAIN_MAX_DEPTH`` frames) is an instance of a
+       known retryable type.
+    2. The exception's type is a bare generic (``Exception`` or
+       ``RuntimeError``) and its message matches a known disconnect marker.
+
+    The second rule is deliberately narrow — matching substrings on arbitrary
+    subclasses would misclassify too much (e.g., a ``ValueError`` whose
+    message happens to contain "eof").
+    """
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    depth = 0
+    while cur is not None and depth < _RETRY_CHAIN_MAX_DEPTH:
+        if id(cur) in seen:  # cyclic chain guard
+            break
+        seen.add(id(cur))
+        if isinstance(cur, _RETRYABLE_ERROR_TYPES):
+            return True
+        cur = cur.__cause__ or cur.__context__
+        depth += 1
+
+    if type(exc) in _GENERIC_ERROR_TYPES:
+        msg = str(exc).lower()
+        return any(marker in msg for marker in _DISCONNECT_MARKERS)
+    return False
+
+
+def _compute_backoff_delay(attempt: int) -> float:
+    """Exponential backoff with small uniform jitter to avoid thundering herd."""
+    import random as _random
+
+    return _RETRY_BASE_DELAY * (2 ** (attempt - 1)) + _random.uniform(0, _RETRY_JITTER_MAX)
 
 
 async def _invoke_with_retry(
@@ -59,54 +143,86 @@ async def _invoke_with_retry(
     """Invoke an agent with retry on transient errors.
 
     Retries on connection errors, timeouts, and server disconnects with
-    exponential backoff. Non-transient errors (validation, auth) are
-    raised immediately.
+    exponential backoff plus jitter. Non-transient errors (validation,
+    auth, programmer errors) are raised immediately.
+
+    Mutates ``config["metadata"]`` (if present) to record the attempt
+    count actually used, so callers that pass a RunnableConfig see the
+    retry count surface in LangSmith without needing a separate return
+    channel.
     """
     import asyncio as _asyncio
 
     last_exc: BaseException | None = None
+    attempts_used = 0
     for attempt in range(1, max_attempts + 1):
+        attempts_used = attempt
         try:
-            return await agent.ainvoke(input_data, config=config)
-        except _RETRYABLE_ERRORS as exc:
-            last_exc = exc
-            if attempt < max_attempts:
-                delay = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
-                logger.warning(
-                    "Agent invocation failed (attempt %d/%d): %s. Retrying in %.1fs",
-                    attempt,
-                    max_attempts,
-                    exc,
-                    delay,
+            result = await agent.ainvoke(input_data, config=config)
+        except Exception as exc:  # noqa: BLE001  # classifier decides retry vs re-raise
+            if not _is_transient_error(exc):
+                _annotate_config_metadata(
+                    config,
+                    attempts=attempt,
+                    terminated=True,
+                    final_exception_type=type(exc).__name__,
                 )
-                await _asyncio.sleep(delay)
-            else:
+                raise
+            last_exc = exc
+            if attempt >= max_attempts:
                 logger.error(
                     "Agent invocation failed after %d attempts: %s",
                     max_attempts,
                     exc,
                 )
-        except Exception as exc:
-            # Check for server disconnect messages in the error string
-            err_str = str(exc).lower()
-            if any(
-                s in err_str
-                for s in ("server disconnected", "connection reset", "eof", "broken pipe")
-            ):
-                last_exc = exc
-                if attempt < max_attempts:
-                    delay = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
-                    logger.warning(
-                        "Server disconnect (attempt %d/%d): %s. Retrying in %.1fs",
-                        attempt,
-                        max_attempts,
-                        exc,
-                        delay,
-                    )
-                    await _asyncio.sleep(delay)
-                    continue
-            raise
-    raise last_exc  # type: ignore[misc]
+                break
+            delay = _compute_backoff_delay(attempt)
+            logger.warning(
+                "Transient error on attempt %d/%d (%s): %s. Retrying in %.1fs",
+                attempt,
+                max_attempts,
+                type(exc).__name__,
+                exc,
+                delay,
+            )
+            await _asyncio.sleep(delay)
+        else:
+            _annotate_config_metadata(
+                config, attempts=attempts_used, terminated=False
+            )
+            return result
+    assert last_exc is not None  # loop only exits via break after exhausting retries
+    _annotate_config_metadata(
+        config,
+        attempts=attempts_used,
+        terminated=True,
+        final_exception_type=type(last_exc).__name__,
+    )
+    raise last_exc
+
+
+def _annotate_config_metadata(
+    config: Any,
+    *,
+    attempts: int,
+    terminated: bool,
+    final_exception_type: str | None = None,
+) -> None:
+    """Stamp retry outcome on ``config["metadata"]`` when possible.
+
+    No-op when ``config`` is None or lacks a metadata dict — callers that
+    care about retry annotations pass a RunnableConfig; callers that don't
+    (tests, ad-hoc invocations) are unaffected.
+    """
+    if not isinstance(config, dict):
+        return
+    meta = config.get("metadata")
+    if not isinstance(meta, dict):
+        return
+    meta["retry_attempts"] = attempts
+    meta["retry_terminated"] = terminated
+    if final_exception_type is not None:
+        meta["retry_final_exception_type"] = final_exception_type
 
 logger = logging.getLogger(__name__)
 
@@ -399,47 +515,84 @@ class DeepAgentsWrapper(BaseAgent):
         # This will link runs to the given experiment in LangSmith.
         langsmith_experiment_name = os.environ.get("LANGSMITH_EXPERIMENT", "").strip() or None
 
-        if langsmith_experiment_name:
-            with trace(
-                name=environment.session_id,
-                reference_example_id=example_id,
-                inputs={"instruction": instruction},
-                project_name=langsmith_experiment_name,
-                metadata=metadata,
-            ) as run_tree:
-                result = await _invoke_with_retry(
-                    deep_agent,
-                    {"messages": [{"role": "user", "content": instruction}]},
-                    config,
-                )
-                last_message = result["messages"][-1]
-                if isinstance(last_message, AIMessage):
-                    run_tree.end(outputs={"last_message": last_message.text})
-        else:
-            config["metadata"] = metadata
-            result = await _invoke_with_retry(
-                deep_agent,
-                {"messages": [{"role": "user", "content": instruction}]},
-                config,
-            )
+        # Share the metadata dict with config so _invoke_with_retry's
+        # in-place annotations (retry_attempts, retry_terminated, ...) flow
+        # through both the RunnableConfig path and the LangSmith trace.
+        config["metadata"] = metadata
 
-        self._save_trajectory(environment, instruction, result, infra_meta)
+        result: dict | None = None
+        failure: _FailureInfo | None = None
+        invoke_input = {"messages": [{"role": "user", "content": instruction}]}
+        try:
+            if langsmith_experiment_name:
+                with trace(
+                    name=environment.session_id,
+                    reference_example_id=example_id,
+                    inputs={"instruction": instruction},
+                    project_name=langsmith_experiment_name,
+                    metadata=metadata,
+                ) as run_tree:
+                    try:
+                        result = await _invoke_with_retry(deep_agent, invoke_input, config)
+                    except Exception as exc:
+                        failure = _build_failure_info(
+                            exc,
+                            attempts=metadata.get("retry_attempts", 1),
+                            reason="retry_exhausted" if _is_transient_error(exc) else "non_retryable",
+                        )
+                        run_tree.end(error=str(exc))
+                        raise
+                    last_message = result["messages"][-1]
+                    if isinstance(last_message, AIMessage):
+                        run_tree.end(outputs={"last_message": last_message.text})
+            else:
+                try:
+                    result = await _invoke_with_retry(deep_agent, invoke_input, config)
+                except Exception as exc:
+                    failure = _build_failure_info(
+                        exc,
+                        attempts=metadata.get("retry_attempts", 1),
+                        reason="retry_exhausted" if _is_transient_error(exc) else "non_retryable",
+                    )
+                    raise
+        finally:
+            # Persist whatever trajectory state we have, even on terminal
+            # failure. A secondary exception here must never mask the
+            # original — log and swallow so the root cause propagates.
+            try:
+                self._save_trajectory(
+                    environment, instruction, result, infra_meta, failure=failure
+                )
+            except Exception:  # noqa: BLE001  # defensive: persistence must not mask root cause
+                logger.exception("Failed to persist trajectory after invocation")
 
     def _save_trajectory(
         self,
         environment: BaseEnvironment,
         instruction: str,
-        result: dict,
+        result: dict | None,
         infra_meta: InfraMetadata | None = None,
+        *,
+        failure: _FailureInfo | None = None,
     ) -> None:
         """Save current trajectory to logs directory.
+
+        Called on both success and failure. When the agent invocation raised,
+        ``result`` may be ``None`` — in that case a minimal trajectory is
+        persisted containing only the user instruction plus a
+        ``extra["failure"]`` block describing the terminal error. This keeps
+        the job directory self-describing for post-mortem tooling even when
+        the underlying LLM stream died before producing output.
 
         Args:
             environment: Harbor environment with trial paths.
             instruction: The task instruction given to the agent.
-            result: Agent invocation result containing messages.
+            result: Agent invocation result containing messages. ``None``
+                when the invocation failed before returning.
             infra_meta: Infrastructure metadata collected at trial start,
                 if available.
+            failure: Structured failure record when the invocation did not
+                complete successfully.
         """
         # Track token usage and cost for this run
         total_prompt_tokens = 0
@@ -458,7 +611,8 @@ class DeepAgentsWrapper(BaseAgent):
         observations = []
         pending_step: Step | None = None
 
-        for msg in result["messages"]:
+        messages = (result or {}).get("messages", [])
+        for msg in messages:
             if isinstance(msg, AIMessage):
                 # Extract usage metadata from AIMessage
                 usage: UsageMetadata = msg.usage_metadata
@@ -536,6 +690,11 @@ class DeepAgentsWrapper(BaseAgent):
             total_completion_tokens=total_completion_tokens or None,
             total_steps=len(steps),
         )
+        trajectory_extra: dict[str, Any] = {}
+        if failure is not None:
+            trajectory_extra["failure"] = asdict(failure)
+            trajectory_extra["status"] = "failed"
+
         trajectory = Trajectory(
             schema_version="ATIF-v1.2",
             session_id=environment.session_id,
@@ -552,6 +711,7 @@ class DeepAgentsWrapper(BaseAgent):
             ),
             steps=steps,
             final_metrics=metrics,
+            extra=trajectory_extra or None,
         )
         trajectory_path = self.logs_dir / "trajectory.json"
         trajectory_path.write_text(json.dumps(trajectory.to_json_dict(), indent=2))
