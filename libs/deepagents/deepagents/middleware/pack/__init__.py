@@ -5,6 +5,7 @@ permissions, cost, hooks, memory) and integrate them with LangGraph's
 middleware system via `awrap_model_call()` and `awrap_tool_call()`.
 """
 
+from deepagents.middleware.pack.architecture_middleware import ArchitectureEnforcementMiddleware
 from deepagents.middleware.pack.agent_dispatch import (
     build_subagent_spec,
     create_teammate_config,
@@ -18,6 +19,7 @@ from deepagents.middleware.pack.permission_middleware import PermissionMiddlewar
 from deepagents.middleware.pack.state import PackState, clear_state, get_state, set_state
 
 __all__ = [
+    "ArchitectureEnforcementMiddleware",
     "CompactionMiddleware",
     "CostMiddleware",
     "HooksMiddleware",
