@@ -473,7 +473,7 @@ class DeepAgentsWrapper(BaseAgent):
                 model_name,
                 temperature=temperature,
                 max_tokens=16384,
-                timeout=60,
+                timeout=300,
                 max_retries=0,
                 **model_kwargs,
             )
