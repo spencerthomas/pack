@@ -1,0 +1,249 @@
+{
+  "run_id": "run-002-invalid",
+  "date": "2026-04-19",
+  "model": "z-ai/glm-5.1",
+  "provider": "openrouter/DeepInfra",
+  "harness_version": "post-timeout-fix",
+  "notes": "INVALID: OpenRouter/DeepInfra API outage during entire run. All 33 tasks hit ReadTimeout/ConnectTimeout on all 3 retries. 0 agent-attempted tasks. Confirms timeout fix works (fails in ~46s per task vs old 15-30 min hangs) but cannot validate task correctness when API is down.",
+  "tasks_attempted": 0,
+  "tasks_passed": 0,
+  "tasks_failed": 0,
+  "tasks_errored": 33,
+  "pass_rate": 0,
+  "total_prompt_tokens": 0,
+  "total_completion_tokens": 0,
+  "total_cost_usd": 0,
+  "results": {
+    "cobol-modernization": {
+      "result": "error",
+      "error_type": "ReadTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "overfull-hbox": {
+      "result": "error",
+      "error_type": "ReadTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "gpt2-codegolf": {
+      "result": "error",
+      "error_type": "ReadTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "polyglot-rust-c": {
+      "result": "error",
+      "error_type": "ReadTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "build-pov-ray": {
+      "result": "error",
+      "error_type": "ReadTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "filter-js-from-html": {
+      "result": "error",
+      "error_type": "ReadTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "password-recovery": {
+      "result": "error",
+      "error_type": "ReadTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "raman-fitting": {
+      "result": "error",
+      "error_type": "ReadTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "git-leak-recovery": {
+      "result": "error",
+      "error_type": "ReadTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "headless-terminal": {
+      "result": "error",
+      "error_type": "ReadTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "mteb-leaderboard": {
+      "result": "error",
+      "error_type": "ReadTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "caffe-cifar-10": {
+      "result": "error",
+      "error_type": "ReadTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "fix-ocaml-gc": {
+      "result": "error",
+      "error_type": "ReadTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "prove-plus-comm": {
+      "result": "error",
+      "error_type": "ReadTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "feal-linear-cryptanalysis": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "mteb-retrieve": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "largest-eigenval": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "dna-insert": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "write-compressor": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "build-pmars": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "sanitize-git-repo": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "qemu-startup": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "make-doom-for-mips": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "torch-tensor-parallelism": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "circuit-fibsqrt": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "query-optimize": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "distribution-search": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "fix-git": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "mcmc-sampling-stan": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "configure-git-webserver": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "torch-pipeline-parallelism": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "sam-cell-seg": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "financial-document-processor": {
+      "result": "error",
+      "error_type": "ConnectTimeout",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    }
+  }
+}
