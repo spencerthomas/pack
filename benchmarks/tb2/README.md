@@ -30,13 +30,21 @@ python3 benchmarks/tb2/analysis/compare_runs.py run-001 run-002
 
 ## Running a Benchmark
 
+Use `--dataset terminal-bench@2.0` (registry) for compliant runs. Never use `-p` (local path) for formal submissions — local clones skip integrity verification.
+
 ```bash
 cd libs/evals && OPENROUTER_API_KEY=... PACK_ENABLED=1 \
 uv run harbor run \
   --agent-import-path deepagents_harbor:DeepAgentsWrapper \
-  -p /path/to/terminal-bench-2 \
+  --dataset terminal-bench@2.0 \
   -n 3 \
   --jobs-dir /tmp/pack-harbor-run \
   --model "openrouter:z-ai/glm-5.1" \
   --job-name "run-NNN"
+```
+
+To save results for tracking:
+
+```bash
+python3 benchmarks/tb2/analysis/save_run.py /tmp/pack-harbor-run/run-NNN run-NNN "harness-version" "notes"
 ```
