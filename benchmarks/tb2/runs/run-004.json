@@ -1,0 +1,239 @@
+{
+  "run_id": "run-004",
+  "date": "2026-04-19",
+  "model": "deepagent-harbor",
+  "provider": "openrouter",
+  "harness_version": "post-openrouter-fix-clean",
+  "notes": "33 remaining tasks, OpenRouter timeout fix + max_tokens cap, no auto-verification. 13 OpenRouterDefaultError (likely credits exhausted). 9/17 agent-attempted (53%).",
+  "tasks_attempted": 34,
+  "tasks_passed": 9,
+  "tasks_failed": 8,
+  "tasks_errored": 17,
+  "pass_rate": 0.529,
+  "total_prompt_tokens": 4748116,
+  "total_completion_tokens": 140806,
+  "total_cost_usd": 4.95,
+  "results": {
+    "break-filter-js-from-html": {
+      "result": "pass",
+      "steps": 19,
+      "prompt_tokens": 403142,
+      "completion_tokens": 13609
+    },
+    "cancel-async-tasks": {
+      "result": "fail",
+      "steps": 2,
+      "prompt_tokens": 10658,
+      "completion_tokens": 16384
+    },
+    "chess-best-move": {
+      "result": "error",
+      "error_type": "ValidationError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "cobol-modernization": {
+      "result": "error",
+      "error_type": "OpenRouterDefaultError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "code-from-image": {
+      "result": "error",
+      "error_type": "OpenRouterDefaultError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "constraints-scheduling": {
+      "result": "pass",
+      "steps": 17,
+      "prompt_tokens": 298215,
+      "completion_tokens": 7923
+    },
+    "count-dataset-tokens": {
+      "result": "error",
+      "error_type": "OpenRouterDefaultError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "custom-memory-heap-crash": {
+      "result": "error",
+      "error_type": "OpenRouterDefaultError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "dna-assembly": {
+      "result": "fail",
+      "steps": 33,
+      "prompt_tokens": 1015930,
+      "completion_tokens": 19216
+    },
+    "gcode-to-text": {
+      "result": "error",
+      "error_type": "OpenRouterDefaultError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "git-multibranch": {
+      "result": "pass",
+      "steps": 26,
+      "prompt_tokens": 369907,
+      "completion_tokens": 5193
+    },
+    "install-windows-3.11": {
+      "result": "error",
+      "error_type": "ValueError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "large-scale-text-editing": {
+      "result": "pass",
+      "steps": 9,
+      "prompt_tokens": 131803,
+      "completion_tokens": 2667
+    },
+    "log-summary-date-ranges": {
+      "result": "pass",
+      "steps": 15,
+      "prompt_tokens": 291242,
+      "completion_tokens": 8112
+    },
+    "make-mips-interpreter": {
+      "result": "fail",
+      "steps": 11,
+      "prompt_tokens": 258804,
+      "completion_tokens": 17334
+    },
+    "merge-diff-arc-agi-task": {
+      "result": "error",
+      "error_type": "OpenRouterDefaultError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "model-extraction-relu-logits": {
+      "result": "fail",
+      "steps": 3,
+      "prompt_tokens": 24307,
+      "completion_tokens": 18911
+    },
+    "nginx-request-logging": {
+      "result": "pass",
+      "steps": 11,
+      "prompt_tokens": 114585,
+      "completion_tokens": 2541
+    },
+    "openssl-selfsigned-cert": {
+      "result": "fail",
+      "steps": 16,
+      "prompt_tokens": 261762,
+      "completion_tokens": 2945
+    },
+    "path-tracing": {
+      "result": "pass",
+      "steps": 13,
+      "prompt_tokens": 222884,
+      "completion_tokens": 2075
+    },
+    "path-tracing-reverse": {
+      "result": "error",
+      "error_type": "OpenRouterDefaultError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "polyglot-c-py": {
+      "result": "fail",
+      "steps": 15,
+      "prompt_tokens": 188060,
+      "completion_tokens": 4597
+    },
+    "protein-assembly": {
+      "result": "error",
+      "error_type": "OpenRouterDefaultError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "pypi-server": {
+      "result": "pass",
+      "steps": 28,
+      "prompt_tokens": 378056,
+      "completion_tokens": 3622
+    },
+    "pytorch-model-cli": {
+      "result": "error",
+      "error_type": "OpenRouterDefaultError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "regex-log": {
+      "result": "fail",
+      "steps": 11,
+      "prompt_tokens": 111713,
+      "completion_tokens": 1880
+    },
+    "reshard-c4-data": {
+      "result": "error",
+      "error_type": "OpenRouterDefaultError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "rstan-to-pystan": {
+      "result": "error",
+      "error_type": "OpenRouterDefaultError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "sparql-university": {
+      "result": "pass",
+      "steps": 14,
+      "prompt_tokens": 248167,
+      "completion_tokens": 9449
+    },
+    "sqlite-db-truncate": {
+      "result": "error",
+      "error_type": "OpenRouterDefaultError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "sqlite-with-gcov": {
+      "result": "fail",
+      "steps": 28,
+      "prompt_tokens": 418881,
+      "completion_tokens": 4348
+    },
+    "tune-mjcf": {
+      "result": "error",
+      "error_type": "OpenRouterDefaultError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "video-processing": {
+      "result": "error",
+      "error_type": "ValidationError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "vulnerable-secret": {
+      "result": "error",
+      "error_type": "OpenRouterDefaultError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    }
+  }
+}
