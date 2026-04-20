@@ -1,0 +1,584 @@
+{
+  "run_id": "run-003",
+  "date": "2026-04-19",
+  "model": "deepagent-harbor",
+  "provider": "openrouter",
+  "harness_version": "pre-verification-pipeline",
+  "notes": "Remaining 33 tasks + retries. OpenRouter timeout fix active, no auto-verification yet. Docker rate-limit caused 35 RuntimeErrors early. 24/43 agent-attempted (56%).",
+  "tasks_attempted": 88,
+  "tasks_passed": 24,
+  "tasks_failed": 26,
+  "tasks_errored": 38,
+  "pass_rate": 0.48,
+  "total_prompt_tokens": 20290592,
+  "total_completion_tokens": 541863,
+  "total_cost_usd": 20.98,
+  "results": {
+    "adaptive-rejection-sampler": {
+      "result": "fail",
+      "steps": 2,
+      "prompt_tokens": 11016,
+      "completion_tokens": 16384
+    },
+    "bn-fit-modify": {
+      "result": "pass",
+      "steps": 18,
+      "prompt_tokens": 279258,
+      "completion_tokens": 5934
+    },
+    "break-filter-js-from-html": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "build-cython-ext": {
+      "result": "pass",
+      "steps": 69,
+      "prompt_tokens": 2288961,
+      "completion_tokens": 15196
+    },
+    "build-pmars": {
+      "result": "pass",
+      "steps": 21,
+      "prompt_tokens": 264480,
+      "completion_tokens": 1672
+    },
+    "build-pov-ray": {
+      "result": "fail",
+      "steps": 59,
+      "prompt_tokens": 1157907,
+      "completion_tokens": 25858
+    },
+    "caffe-cifar-10": {
+      "result": "fail",
+      "steps": 1,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "cancel-async-tasks": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "chess-best-move": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "circuit-fibsqrt": {
+      "result": "fail",
+      "steps": 6,
+      "prompt_tokens": 65209,
+      "completion_tokens": 16593
+    },
+    "cobol-modernization": {
+      "result": "fail",
+      "steps": 21,
+      "prompt_tokens": 360046,
+      "completion_tokens": 27176
+    },
+    "code-from-image": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "compile-compcert": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "configure-git-webserver": {
+      "result": "fail",
+      "steps": 34,
+      "prompt_tokens": 446248,
+      "completion_tokens": 3545
+    },
+    "constraints-scheduling": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "count-dataset-tokens": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "crack-7z-hash": {
+      "result": "pass",
+      "steps": 44,
+      "prompt_tokens": 1499054,
+      "completion_tokens": 7389
+    },
+    "custom-memory-heap-crash": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "db-wal-recovery": {
+      "result": "pass",
+      "steps": 10,
+      "prompt_tokens": 145223,
+      "completion_tokens": 2412
+    },
+    "distribution-search": {
+      "result": "fail",
+      "steps": 2,
+      "prompt_tokens": 10745,
+      "completion_tokens": 16384
+    },
+    "dna-assembly": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "dna-insert": {
+      "result": "fail",
+      "steps": 26,
+      "prompt_tokens": 843272,
+      "completion_tokens": 30267
+    },
+    "extract-elf": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "extract-moves-from-video": {
+      "result": "error",
+      "error_type": "ValidationError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "feal-differential-cryptanalysis": {
+      "result": "pass",
+      "steps": 10,
+      "prompt_tokens": 210081,
+      "completion_tokens": 15884
+    },
+    "feal-linear-cryptanalysis": {
+      "result": "fail",
+      "steps": 3,
+      "prompt_tokens": 26659,
+      "completion_tokens": 16568
+    },
+    "filter-js-from-html": {
+      "result": "fail",
+      "steps": 2,
+      "prompt_tokens": 10586,
+      "completion_tokens": 16384
+    },
+    "financial-document-processor": {
+      "result": "error",
+      "error_type": "InternalServerResponseError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "fix-code-vulnerability": {
+      "result": "pass",
+      "steps": 34,
+      "prompt_tokens": 766371,
+      "completion_tokens": 4262
+    },
+    "fix-git": {
+      "result": "pass",
+      "steps": 10,
+      "prompt_tokens": 114154,
+      "completion_tokens": 1401
+    },
+    "gcode-to-text": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "git-leak-recovery": {
+      "result": "pass",
+      "steps": 15,
+      "prompt_tokens": 174846,
+      "completion_tokens": 1831
+    },
+    "git-multibranch": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "gpt2-codegolf": {
+      "result": "fail",
+      "steps": 19,
+      "prompt_tokens": 347904,
+      "completion_tokens": 32206
+    },
+    "headless-terminal": {
+      "result": "pass",
+      "steps": 13,
+      "prompt_tokens": 175241,
+      "completion_tokens": 5348
+    },
+    "hf-model-inference": {
+      "result": "pass",
+      "steps": 13,
+      "prompt_tokens": 146206,
+      "completion_tokens": 1985
+    },
+    "install-windows-3.11": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "kv-store-grpc": {
+      "result": "fail",
+      "steps": 13,
+      "prompt_tokens": 161041,
+      "completion_tokens": 1906
+    },
+    "large-scale-text-editing": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "largest-eigenval": {
+      "result": "fail",
+      "steps": 1,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "llm-inference-batching-scheduler": {
+      "result": "pass",
+      "steps": 34,
+      "prompt_tokens": 1685925,
+      "completion_tokens": 56419
+    },
+    "log-summary-date-ranges": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "mailman": {
+      "result": "pass",
+      "steps": 48,
+      "prompt_tokens": 1626663,
+      "completion_tokens": 13016
+    },
+    "make-doom-for-mips": {
+      "result": "fail",
+      "steps": 1,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "make-mips-interpreter": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "mcmc-sampling-stan": {
+      "result": "pass",
+      "steps": 20,
+      "prompt_tokens": 279026,
+      "completion_tokens": 2375
+    },
+    "merge-diff-arc-agi-task": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "model-extraction-relu-logits": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "modernize-scientific-stack": {
+      "result": "pass",
+      "steps": 6,
+      "prompt_tokens": 64714,
+      "completion_tokens": 1453
+    },
+    "mteb-leaderboard": {
+      "result": "fail",
+      "steps": 4,
+      "prompt_tokens": 32704,
+      "completion_tokens": 313
+    },
+    "mteb-retrieve": {
+      "result": "fail",
+      "steps": 6,
+      "prompt_tokens": 57976,
+      "completion_tokens": 868
+    },
+    "multi-source-data-merger": {
+      "result": "pass",
+      "steps": 11,
+      "prompt_tokens": 133675,
+      "completion_tokens": 4065
+    },
+    "nginx-request-logging": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "openssl-selfsigned-cert": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "overfull-hbox": {
+      "result": "fail",
+      "steps": 1,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "password-recovery": {
+      "result": "pass",
+      "steps": 37,
+      "prompt_tokens": 898192,
+      "completion_tokens": 18194
+    },
+    "path-tracing": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "path-tracing-reverse": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "polyglot-c-py": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "polyglot-rust-c": {
+      "result": "fail",
+      "steps": 6,
+      "prompt_tokens": 93487,
+      "completion_tokens": 10485
+    },
+    "portfolio-optimization": {
+      "result": "pass",
+      "steps": 13,
+      "prompt_tokens": 192755,
+      "completion_tokens": 3640
+    },
+    "protein-assembly": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "prove-plus-comm": {
+      "result": "pass",
+      "steps": 11,
+      "prompt_tokens": 124962,
+      "completion_tokens": 2314
+    },
+    "pypi-server": {
+      "result": "pass",
+      "steps": 15,
+      "prompt_tokens": 179411,
+      "completion_tokens": 1422
+    },
+    "pytorch-model-cli": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "pytorch-model-recovery": {
+      "result": "pass",
+      "steps": 18,
+      "prompt_tokens": 332520,
+      "completion_tokens": 12835
+    },
+    "qemu-alpine-ssh": {
+      "result": "fail",
+      "steps": 1,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "qemu-startup": {
+      "result": "fail",
+      "steps": 1,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "query-optimize": {
+      "result": "pass",
+      "steps": 13,
+      "prompt_tokens": 170550,
+      "completion_tokens": 4408
+    },
+    "raman-fitting": {
+      "result": "fail",
+      "steps": 20,
+      "prompt_tokens": 459698,
+      "completion_tokens": 21778
+    },
+    "regex-chess": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "regex-log": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "reshard-c4-data": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "rstan-to-pystan": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "sam-cell-seg": {
+      "result": "error",
+      "error_type": "ValidationError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "sanitize-git-repo": {
+      "result": "pass",
+      "steps": 22,
+      "prompt_tokens": 798812,
+      "completion_tokens": 5252
+    },
+    "schemelike-metacircular-eval": {
+      "result": "fail",
+      "steps": 8,
+      "prompt_tokens": 118059,
+      "completion_tokens": 16928
+    },
+    "sparql-university": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "sqlite-db-truncate": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "sqlite-with-gcov": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "torch-pipeline-parallelism": {
+      "result": "fail",
+      "steps": 2,
+      "prompt_tokens": 12169,
+      "completion_tokens": 2604
+    },
+    "torch-tensor-parallelism": {
+      "result": "fail",
+      "steps": 2,
+      "prompt_tokens": 10729,
+      "completion_tokens": 16384
+    },
+    "train-fasttext": {
+      "result": "fail",
+      "steps": 1,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "tune-mjcf": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "video-processing": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "vulnerable-secret": {
+      "result": "error",
+      "error_type": "RuntimeError",
+      "steps": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "winning-avg-corewars": {
+      "result": "pass",
+      "steps": 61,
+      "prompt_tokens": 3491129,
+      "completion_tokens": 64079
+    },
+    "write-compressor": {
+      "result": "fail",
+      "steps": 3,
+      "prompt_tokens": 22928,
+      "completion_tokens": 16446
+    }
+  }
+}
