@@ -50,12 +50,14 @@ from deepagents_cli.config import (
 )
 from deepagents_cli.configurable_model import ConfigurableModelMiddleware
 from deepagents_cli.integrations.sandbox_factory import get_default_working_dir
+from deepagents_cli.budget_observable import BudgetObservableMiddleware
 from deepagents_cli.loop_detection import LoopDetectionMiddleware
 from deepagents_cli.local_context import (
     LocalContextMiddleware,
     _AsyncExecutableBackend,
     _ExecutableBackend,
 )
+from deepagents_cli.precompletion_checklist import PreCompletionChecklistMiddleware
 from deepagents_cli.project_utils import ProjectContext, get_server_project_context
 from deepagents_cli.subagents import list_subagents
 from deepagents_cli.unicode_security import (
@@ -1752,6 +1754,14 @@ def create_cli_agent(
     if not interactive:
         agent_middleware.append(PythonSyntaxCheckMiddleware())
         agent_middleware.append(ToolCallLeakDetectionMiddleware())
+        # Pre-completion verification gate: force a verification checklist
+        # before the agent can declare done. Targets the "wrong_solution"
+        # failure mode where agents submit without running tests.
+        agent_middleware.append(PreCompletionChecklistMiddleware())
+        # Budget observability: append remaining time to every tool result
+        # so the agent can reason about its runway. Converts silent timeouts
+        # into informed best-so-far submissions.
+        agent_middleware.append(BudgetObservableMiddleware())
 
     # Get or use custom system prompt
     if system_prompt is None:
