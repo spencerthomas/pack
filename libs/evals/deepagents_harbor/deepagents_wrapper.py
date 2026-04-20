@@ -708,9 +708,9 @@ class DeepAgentsWrapper(BaseAgent):
                 ) as run_tree:
                     try:
                         result = await _invoke_with_retry(deep_agent, invoke_input, config)
-                        result = await self._auto_verify_and_fix(
-                            deep_agent, result, config, backend,
-                        )
+                        # Auto-verification disabled: it consumed timeout
+                        # budget and caused regressions on passing tasks.
+                        # Verification is prompt-guided instead (Phase 3).
                     except Exception as exc:
                         failure = _build_failure_info(
                             exc,
