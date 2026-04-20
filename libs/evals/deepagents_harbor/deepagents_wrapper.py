@@ -395,9 +395,9 @@ You are running inside a sandboxed benchmark environment. Complete the task full
 1. **Requirements checklist** — every concrete requirement with exact details (file paths, field names, CLI flags, output formats, services/ports, edge cases mentioned).
 2. **Test plan** — how you'll verify each requirement. If test files exist (`/tests/`, `check.py`), note the exact command. If the task gives a test command, use it verbatim. Otherwise describe a minimal smoke check you'll write.
 
-**Phase 2 — BUILD:** Write a first draft, get it running even if incomplete. A partial solution that exists beats a perfect one never written.
+**Phase 2 — BUILD:** Write a first draft, get it running even if incomplete. A partial solution that exists beats a perfect one never written. After your first draft, immediately run the tests — `bash /tests/test.sh` if it exists, or whatever test command the task specifies.
 
-**Phase 3 — TEST & FIX (spend most of your time here):** Run the test plan. Read the FULL output — every error, every assertion. Fix one issue at a time and re-run. Walk your checklist item-by-item and verify each one.
+**Phase 3 — TEST & FIX (spend most of your time here):** Run `bash /tests/test.sh` (or the task's test command). Read the FULL output — every error, every assertion. Fix one issue at a time and re-run. Walk your checklist item-by-item and verify each one. **Do NOT declare the task complete without running the tests at least once.**
 
 ## Pivot Rules
 
@@ -708,6 +708,9 @@ class DeepAgentsWrapper(BaseAgent):
                 ) as run_tree:
                     try:
                         result = await _invoke_with_retry(deep_agent, invoke_input, config)
+                        result = await self._auto_verify_and_fix(
+                            deep_agent, result, config, backend,
+                        )
                     except Exception as exc:
                         failure = _build_failure_info(
                             exc,
@@ -727,6 +730,9 @@ class DeepAgentsWrapper(BaseAgent):
             else:
                 try:
                     result = await _invoke_with_retry(deep_agent, invoke_input, config)
+                    result = await self._auto_verify_and_fix(
+                        deep_agent, result, config, backend,
+                    )
                 except Exception as exc:
                     failure = _build_failure_info(
                         exc,
@@ -744,6 +750,83 @@ class DeepAgentsWrapper(BaseAgent):
                 )
             except Exception:  # noqa: BLE001  # defensive: persistence must not mask root cause
                 logger.exception("Failed to persist trajectory after invocation")
+
+    async def _auto_verify_and_fix(
+        self,
+        agent: Any,
+        result: dict,
+        config: Any,
+        backend: Any,
+        *,
+        max_cycles: int = 3,
+    ) -> dict:
+        """Run verification tests and let the agent fix failures.
+
+        After the agent completes, executes ``/tests/test.sh`` in the
+        sandbox.  If tests fail, feeds the truncated output back as a
+        user message and re-invokes the agent for a fix attempt.
+
+        Returns the final agent result (original or post-fix).
+        """
+        import asyncio as _asyncio
+
+        test_cmd = "bash /tests/test.sh"
+
+        if not hasattr(backend, "aexecute"):
+            logger.debug("Backend does not support aexecute — skipping auto-verification")
+            return result
+
+        for cycle in range(1, max_cycles + 1):
+            try:
+                test_output = await _asyncio.wait_for(
+                    backend.aexecute(test_cmd),
+                    timeout=120,
+                )
+                output_text = test_output if isinstance(test_output, str) else str(test_output)
+            except Exception as exc:
+                exc_str = str(exc)
+                if any(s in exc_str for s in ("No such file", "not found", "command not found", "exit code")):
+                    logger.info("No /tests/test.sh found — skipping auto-verification")
+                    return result
+                logger.warning("Verification command failed (cycle %d): %s", cycle, exc)
+                output_text = exc_str
+
+            # Check for pass signal
+            if "1" in (output_text or "") and "PASSED" in (output_text or "").upper():
+                logger.info("Auto-verification PASSED on cycle %d", cycle)
+                return result
+            if "reward" in (output_text or "").lower() and "1" in (output_text or ""):
+                logger.info("Auto-verification PASSED on cycle %d", cycle)
+                return result
+
+            # Tests failed — truncate output and feed back to agent
+            truncated = output_text[:2000] if output_text else "Tests failed with no output"
+            logger.info(
+                "Auto-verification FAILED on cycle %d/%d. Feeding errors back to agent.",
+                cycle,
+                max_cycles,
+            )
+
+            if cycle >= max_cycles:
+                logger.warning("Auto-verification exhausted %d cycles", max_cycles)
+                return result
+
+            fix_message = (
+                f"VERIFICATION FAILED. The task's test suite produced errors. "
+                f"Fix the issues and try again.\n\n"
+                f"Test output (truncated):\n```\n{truncated}\n```"
+            )
+            try:
+                result = await _invoke_with_retry(
+                    agent,
+                    {"messages": [{"role": "user", "content": fix_message}]},
+                    config,
+                )
+            except Exception:
+                logger.warning("Fix attempt failed on cycle %d", cycle, exc_info=True)
+                return result
+
+        return result
 
     def _save_trajectory(
         self,
