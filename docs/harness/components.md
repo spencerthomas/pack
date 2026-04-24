@@ -76,6 +76,48 @@ Decides what kind of run is happening and what bounds apply.
   (`test_scope_enforcement_records_via_ratchet`); Harbor runtime
   persistence is deferred pending a per-trial vs repo-level decision.
 
+### ArchLintMiddleware + `check_file`
+
+- **File:** `libs/cli/deepagents_cli/arch_lint.py`
+- **Tests:** `libs/cli/tests/unit_tests/test_arch_lint.py` (39 tests)
+- **Hook:** `wrap_tool_call` (runtime enforcement); also callable as
+  a pure checker (`check_file(path, source)`) for CI or reviewer use.
+- **Enforces:** Pack's package dependency direction via
+  `PACKAGE_EDGES`. `evals → cli → deepagents` is the only allowed
+  direction; reverse imports are blocked.
+- **Path resolution:** `package_for_path(path)` maps filesystem
+  paths to package names; tests and scripts are excluded from
+  enforcement.
+- **Import extraction:** AST-based when source is valid Python;
+  regex fallback when source won't parse (e.g. a partial edit).
+- **Ratchet mode:** `existing_violations` set passed at construction
+  time is tolerated; only new `(importer, imported)` pairs are
+  rejected. New violations flow to the `violation_recorder` callback.
+- **Teach-at-failure:** rejection message lists the full
+  `PACKAGE_EDGES` table and points at this doc for the layering
+  rationale.
+
+### harness discover
+
+- **File:** `libs/cli/deepagents_cli/harness_discover.py`
+- **Tests:** `libs/cli/tests/unit_tests/test_harness_discover.py`
+  (20 tests)
+- **Purpose:** one-shot read-only scan of a brownfield repo; emits
+  four markdown reports under `docs/generated/` and proposes initial
+  context-pack skeletons under `.context-packs/proposed/`.
+- **Reports:** `codebase-map.md` (languages, top-level directories),
+  `package-map.md` (detected packages + inferred dependency edges),
+  `domain-candidates.md` (dirs under `src/`/`packages/`/`libs/` with
+  README excerpts), `risk-areas.md` (files over 500 LOC, directories
+  without tests).
+- **Pack proposal:** top 5 detected packages get skeleton
+  `README.md` + `rules.md` with placeholder content. Idempotent —
+  existing edits aren't overwritten.
+- **No LLM calls:** pure filesystem scan plus regex-based Python
+  import extraction. Fast; safe to run repeatedly.
+- **API:** `discover(repo_root, write_outputs=True)` returns a
+  `DiscoveryResult` dataclass.
+
 ## Layer 2 — Context
 
 Determines what the LLM sees on every turn.
@@ -243,8 +285,31 @@ Runs checks during and after the main agent's work.
 
 ## Layer 5 — Learning
 
-Nascent. Trajectory capture exists; lesson-promotion automation does
-not yet.
+Trace analyzer and reflection watcher provide the raw signal; the
+lesson-promotion automation that turns signal into durable artifacts
+is the next phase.
+
+### Trace analyzer
+
+- **File:** `libs/cli/deepagents_cli/trace_analyzer.py`
+- **Tests:** `libs/cli/tests/unit_tests/test_trace_analyzer.py`
+  (19 tests)
+- **Inputs:** a Harbor trial directory (reads `result.json` +
+  `agent/trajectory.json`) plus an optional `ReviewVerdict`.
+- **Outputs:** `TraceInsight(category, confidence, summary,
+  evidence, proposed_promotion)` where category is one of
+  `missing_context`, `missing_rule`, `missing_tool`,
+  `missing_example`, `model_capability_limit`.
+- **Dispatch order:** architectural rejections beat scope
+  rejections beat behavioural signals (single-shot dump, timeout).
+  Matches the harness's "fix architecture first" bias.
+- **Confidence:** `high` for encoded rule hits (arch rejection),
+  `medium` for clear behavioural patterns, `low` for the fallback.
+  Low-confidence insights should require human review before
+  promotion in Phase E.2.
+- **Deterministic:** no LLM calls. Signal extraction tolerates
+  missing or malformed trial files by falling back to zero/False
+  defaults — always returns a usable insight.
 
 ### Live reflection watcher
 
@@ -335,11 +400,13 @@ Total harness surface coverage: ~230 tests, all passing.
   runtime persistence pending.
 - **Phase B.1 + B.2** — ✅ context pack loader + wiring. First pack
   ships at `.context-packs/coding-task/`.
-- **Phase B.3** — ⏳ `harness discover` CLI not yet built.
+- **Phase B.3** — ✅ `harness discover` scans a repo and emits
+  generated reports + proposed context-pack skeletons.
 - **Phase C** — ✅ reviewer sub-agent + policy-gated middleware.
-- **Phase D** — ⏳ arch-lint, business-rule checker, ratchet-mode
-  enforcement.
-- **Phase E** — ⏳ lesson-promotion automation.
+- **Phase D.1** — ✅ arch-lint with ratchet mode. Business-rule
+  checker (D.4) not yet built.
+- **Phase E.1** — ✅ trace analyzer produces structured insights.
+  `harness promote-lesson` automation (E.2) still pending.
 - **Phase F** — ⏳ autonomous cleanup agents.
 
 See [`../roadmap/agent-harness-roadmap.md`](../roadmap/agent-harness-roadmap.md)
