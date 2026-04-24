@@ -50,10 +50,12 @@ from deepagents_cli.config import (
 )
 from deepagents_cli.configurable_model import ConfigurableModelMiddleware
 from deepagents_cli.integrations.sandbox_factory import get_default_working_dir
+from deepagents_cli.arch_lint import ArchLintMiddleware, ArchViolation
 from deepagents_cli.budget_observable import BudgetObservableMiddleware
 from deepagents_cli.output_ceiling import OutputCeilingMiddleware
 from deepagents_cli.policy import TaskPolicy
 from deepagents_cli.progressive_disclosure import ProgressiveDisclosureMiddleware
+from deepagents_cli.ratchet import Ratchet
 from deepagents_cli.reviewer import ReviewerSubAgent
 from deepagents_cli.reviewer_middleware import ReviewerMiddleware
 from deepagents_cli.scope_enforcement import ScopeEnforcementMiddleware
@@ -1493,6 +1495,7 @@ def create_cli_agent(
     budget_total_sec: int | None = None,
     task_policy: TaskPolicy | None = None,
     context_pack: Any = None,
+    ratchet_dir: str | Path | None = None,
 ) -> tuple[Pregel, CompositeBackend]:
     """Create a CLI-configured agent with flexible options.
 
@@ -1780,14 +1783,69 @@ def create_cli_agent(
         agent_middleware.append(ShellAllowListMiddleware(restrictive_shell_allow_list))
         shell_middleware_added = True
 
+    # Ratchet (Phase A.3 + M2): when ratchet_dir is supplied, load the
+    # existing violation state and route all enforcement middleware's
+    # rejections to it. Existing violations at run start are tolerated;
+    # new ones are blocked and persisted to .harness/violations.json.
+    _ratchet = Ratchet(harness_dir=ratchet_dir) if ratchet_dir is not None else None
+    _existing_arch_violations: set[tuple[str, str]] = set()
+    if _ratchet is not None:
+        try:
+            for violation in _ratchet.load_violations():
+                # Arch-lint violation keys are (importer_pkg, imported_pkg).
+                if violation.rule.startswith("arch.forbidden_import"):
+                    # `subject` is stored as "<importer>:<imported>"; split.
+                    parts = violation.subject.split(":", 1)
+                    if len(parts) == 2:
+                        _existing_arch_violations.add((parts[0], parts[1]))
+        except Exception:  # noqa: BLE001  # ratchet failure must not abort agent construction
+            logger.warning("Ratchet load failed; enforcement runs without seeded state", exc_info=True)
+
+    def _record_scope_violation(tool: str, path: str, reason: str) -> None:
+        if _ratchet is None:
+            return
+        rule_key = f"scope.{reason.split()[0].lower()}"
+        try:
+            _ratchet.record(rule=rule_key, subject=path, reason=f"{tool}: {reason}")
+        except Exception:  # noqa: BLE001  # persistence failure is non-fatal
+            logger.debug("Ratchet scope record failed", exc_info=True)
+
+    def _record_arch_violation(path: str, violation: ArchViolation) -> None:
+        if _ratchet is None:
+            return
+        subject = f"{violation.importer}:{violation.imported}"
+        reason = f"{path}: {violation.summary()}"
+        try:
+            _ratchet.record(
+                rule="arch.forbidden_import",
+                subject=subject,
+                reason=reason,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("Ratchet arch record failed", exc_info=True)
+
     # Scope enforcement (Phase A harness layer): when a TaskPolicy is
     # supplied, gate file writes against its allowed_paths globs + the
     # max_files_changed cap. No-ops when task_policy is None, preserving
     # existing behaviour for callers that haven't opted into the harness.
     if task_policy is not None:
         agent_middleware.append(
-            ScopeEnforcementMiddleware(policy=task_policy),
+            ScopeEnforcementMiddleware(
+                policy=task_policy,
+                violation_recorder=_record_scope_violation if _ratchet else None,
+            ),
         )
+
+    # Arch lint (Phase D.1 + M2): enforce the package dependency
+    # direction. Ratchet mode tolerates existing violations seeded from
+    # .harness/violations.json so a brownfield repo doesn't brick on
+    # first run — only fresh violations block.
+    agent_middleware.append(
+        ArchLintMiddleware(
+            existing_violations=_existing_arch_violations,
+            violation_recorder=_record_arch_violation if _ratchet else None,
+        ),
+    )
 
     # Always-on tool result middleware
     agent_middleware.append(EditVerificationMiddleware())

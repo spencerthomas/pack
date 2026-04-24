@@ -176,8 +176,64 @@ The harness is working when:
 
 The TB2 score is a lagging indicator of the harness working, not the goal itself.
 
+## External review — 2026-04-24
+
+An external review scored Pack at **6.8/10** overall, with these reads:
+
+| Area | Score |
+|---|---|
+| Vision clarity | 9/10 |
+| Harness architecture | 8/10 |
+| Runtime enforcement | 6.5/10 |
+| Business-logic adaptation | 3/10 |
+| Brownfield codebase adoption | 3/10 |
+| Learning loop | 2.5/10 |
+| Product readiness | 4/10 |
+| Benchmark proof | 4/10 |
+
+Core critique: Pack has the right architecture and early enforcement but **does not yet complete the compounding loop**. Middleware nudges agent behavior; policy + checks don't yet reshape the repo over time; lessons don't yet become durable artifacts.
+
+The review's plan converted to six milestones and five immediate PRs. After shipping arch-lint, `harness discover`, and the trace analyzer in commit `9c1dcd74`, the remaining high-priority work aligns with:
+
+### M1 — `.harness/` as the declarative control plane
+
+Move policies out of hardcoded Python into `.harness/config.yaml`. A target repo describes its own task policies, dependency rules, required checks, and packages. `policy_for` loads config when present, falls back to the Python defaults otherwise.
+
+### M2 — Finish the ratchet (runtime persistence)
+
+Wire `Ratchet.record` into the agent loop via `ScopeEnforcement` and `ArchLint` violation recorders. Existing violations at run start are loaded and treated as tolerated; new violations block and persist. `.harness/quality-score.json` gets appended to per run.
+
+**Review calls this the single most important milestone.**
+
+### M3 — `harness discover` ✅ (shipped in `9c1dcd74`)
+
+First version lands as a Python function that can be called directly. CLI entry point wrapping it is pending.
+
+### M4 — Architecture lint ✅ (shipped in `9c1dcd74`)
+
+`arch_lint.py` enforces `PACKAGE_EDGES`. Ratchet mode supported via `existing_violations` param. Wiring into `create_cli_agent` is pending so the middleware actually fires in Harbor runs.
+
+### M5 — Domain packs with executable rules
+
+Evolve context packs from (README + rules + pack.yaml) to include `checks.yaml` (invariants), `examples/`, `golden-cases/`, `schemas/`, `known-failure-modes.md`, `allowed-files.yaml`, `required-checks.yaml`. Build `tools/business-rule-checker/` that runs the invariants as static/schema/golden-case checks.
+
+### M6 — Lesson promotion automation
+
+`harness promote-lesson --from-run <id>` takes a `TraceInsight` (Phase E.1 output) and proposes a durable artifact: updated rules.md, new golden test, new arch rule, new business-rule, etc. Human approval gate before any commit.
+
+## Immediate next PRs (merged review + roadmap)
+
+1. **Ratchet runtime persistence** (M2) — wire ScopeEnforcement + ArchLint violation recorders into a live Ratchet. Most-important item per the review.
+2. **`.harness/config.yaml` loader** (M1) — declarative repo control plane.
+3. **`harness check` unified CLI** — compose all existing checkers into one JSON-emitting command.
+4. **Arch-lint wired into `create_cli_agent`** — the middleware exists but isn't active in the agent loop yet.
+5. **Diff-aware reviewer** — move reviewer input from "recent messages" to "actual diff + test output + arch-lint output".
+
 ## Session decisions referenced
 
 - **2026-04-24 — `c4d46726`** — SystemPromptBuilder wired + TaskHints classifier introduced. Layer 2 foundation.
 - **2026-04-24 — `5996de9d`** — Seven harness fixes: controller env leak, Harbor-timeout wiring, OutputCeiling, ProgressiveDisclosure, tool-result enrichment, shell allowlist, LangSmith scaffolding.
-- **2026-04-24 — this roadmap** — Scope expands from TB2 pass-rate to harness-as-product.
+- **2026-04-24 — `3cb1b78b`, `a2814fb2`** — Phase A (policy + scope + ratchet substrate).
+- **2026-04-24 — `6cfc2aa5`** — Phase B (context packs) + Phase C (reviewer).
+- **2026-04-24 — `9c1dcd74`** — Phase D.1 (arch-lint) + B.3 (discover) + E.1 (trace analyzer).
+- **2026-04-24 — this roadmap update** — External review integrated; six-milestone plan + five immediate PRs consolidated.

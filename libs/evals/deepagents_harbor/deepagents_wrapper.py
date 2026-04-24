@@ -9,6 +9,7 @@ import os
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from deepagents import create_deep_agent
@@ -768,6 +769,16 @@ class DeepAgentsWrapper(BaseAgent):
             # to that here, so we approximate).
             budget_total_sec = _resolve_agent_timeout(configuration)
 
+            # Per-trial ratchet: violations land under the trial dir so
+            # the job's aggregated state is inspectable without cross-
+            # trial contamination. Repo-level ratchet rollup is a later
+            # step that reads these per-trial files.
+            trial_ratchet_dir: Path | None
+            try:
+                trial_ratchet_dir = Path(environment.trial_paths.trial_dir) / ".harness"
+            except (AttributeError, OSError):
+                trial_ratchet_dir = None
+
             deep_agent, _ = create_cli_agent(
                 model=self._model,
                 assistant_id=environment.session_id,
@@ -784,6 +795,7 @@ class DeepAgentsWrapper(BaseAgent):
                 budget_total_sec=budget_total_sec,
                 task_policy=task_policy,
                 context_pack=context_pack,
+                ratchet_dir=trial_ratchet_dir,
             )
         else:
             # Use SDK agent

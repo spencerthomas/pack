@@ -72,9 +72,54 @@ Decides what kind of run is happening and what bounds apply.
   subject) pair is already tracked — tolerated debt, not a new
   regression. `append_snapshot(QualitySnapshot)` adds to a rolling
   history.
-- **Runtime wiring:** contract proven via unit test
-  (`test_scope_enforcement_records_via_ratchet`); Harbor runtime
-  persistence is deferred pending a per-trial vs repo-level decision.
+- **Runtime wiring:** `create_cli_agent` accepts a `ratchet_dir`
+  kwarg; when supplied, `ScopeEnforcementMiddleware` and
+  `ArchLintMiddleware` route their rejections into the ratchet.
+  Existing violations at run start are loaded as seed state and
+  treated as tolerated; new violations persist to disk. Harbor
+  points the ratchet at `<trial_dir>/.harness` so per-trial state is
+  inspectable in the run archive.
+- **Integration test:** `test_agent_ratchet_wiring.py` (6 tests)
+  covers scope + arch recording, dedup, and seeding.
+
+### Declarative control plane (`.harness/config.yaml`)
+
+- **File:** `libs/cli/deepagents_cli/harness_config.py`
+- **Tests:** `libs/cli/tests/unit_tests/test_harness_config.py`
+  (17 tests)
+- **Purpose:** move policy overrides from hardcoded Python into a
+  repo-level YAML config. Targets M1 of the review plan.
+- **Shape:** `version`, `repo (name, root)`, `packages`,
+  `dependency_rules`, `task_policies`. Unknown keys ignored for
+  forward/backward compat.
+- **API:** `find_harness_dir()` walks up from cwd; `load_config()`
+  returns a typed `HarnessConfig` or None when the file is missing
+  or malformed. `policy_from_config(config, task_type, default)`
+  merges a config override on top of a base `TaskPolicy`.
+- **YAML:** prefers PyYAML; falls back to a naive single-line-flow
+  parser when PyYAML isn't importable so the module works in
+  minimal environments.
+
+### `harness check` unified pipeline
+
+- **File:** `libs/cli/deepagents_cli/harness_check.py`
+- **Tests:** `libs/cli/tests/unit_tests/test_harness_check.py`
+  (14 tests)
+- **Purpose:** PR 3 from the review plan. Composes the checks the
+  harness already knows about into a single callable that emits
+  machine-readable JSON and human-readable text.
+- **Registered checks:** `arch-lint` (in-process), `tests` (uv run
+  pytest or bare pytest), `lint` (ruff check), `typecheck` (ty
+  then mypy fallback), `docs-lint` (ruff --select D).
+- **Result shape:** every check produces a `CheckResult(name,
+  status, summary, command, details)` with status in
+  `{pass, fail, not_configured, skip}`. Unknown check names report
+  as `not_configured` rather than erroring.
+- **Composite status:** `fail` if any check failed; `pass`
+  otherwise. `not_configured` and `skip` are non-blocking.
+- **CLI entry point:** callable as `run_checks(repo_root,
+  checks=...)`. A thin CLI wrapper can land next without touching
+  the composition logic.
 
 ### ArchLintMiddleware + `check_file`
 
@@ -396,17 +441,22 @@ Total harness surface coverage: ~230 tests, all passing.
 
 ## Roadmap status
 
-- **Phase A** — ✅ policy + scope + ratchet substrate live. Ratchet
-  runtime persistence pending.
+- **Phase A** — ✅ policy + scope + ratchet substrate + runtime
+  persistence wired into `create_cli_agent`.
 - **Phase B.1 + B.2** — ✅ context pack loader + wiring. First pack
   ships at `.context-packs/coding-task/`.
 - **Phase B.3** — ✅ `harness discover` scans a repo and emits
   generated reports + proposed context-pack skeletons.
 - **Phase C** — ✅ reviewer sub-agent + policy-gated middleware.
-- **Phase D.1** — ✅ arch-lint with ratchet mode. Business-rule
-  checker (D.4) not yet built.
+  Diff-aware reviewer upgrade (PR 5) pending.
+- **Phase D.1** — ✅ arch-lint with ratchet mode, live in the
+  agent loop via `create_cli_agent`. Business-rule checker (D.4)
+  not yet built.
 - **Phase E.1** — ✅ trace analyzer produces structured insights.
   `harness promote-lesson` automation (E.2) still pending.
+- **M1** — ✅ `.harness/config.yaml` declarative control plane.
+- **M2** — ✅ ratchet runtime persistence wired through Harbor.
+- **PR 3** — ✅ `harness check` unified pipeline.
 - **Phase F** — ⏳ autonomous cleanup agents.
 
 See [`../roadmap/agent-harness-roadmap.md`](../roadmap/agent-harness-roadmap.md)
