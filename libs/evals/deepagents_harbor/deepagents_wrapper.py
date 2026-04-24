@@ -662,6 +662,12 @@ class DeepAgentsWrapper(BaseAgent):
             # benchmark context and environment details.
             harbor_context = await self._get_formatted_system_prompt(backend)
 
+            # Classify the task so the prompt builder can surface domain/phase
+            # guidance without bloating the static portion for unrelated tasks.
+            from deepagents.prompt import classify
+
+            task_hints = classify(instruction).as_dict()
+
             deep_agent, _ = create_cli_agent(
                 model=self._model,
                 assistant_id=environment.session_id,
@@ -673,6 +679,7 @@ class DeepAgentsWrapper(BaseAgent):
                 enable_memory=True,  # Activate Pack's memory system
                 enable_skills=True,  # Activate Pack's skills system
                 enable_shell=False,  # Sandbox provides execution
+                task_hints=task_hints,
             )
         else:
             # Use SDK agent

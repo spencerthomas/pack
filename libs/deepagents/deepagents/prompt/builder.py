@@ -20,6 +20,7 @@ from deepagents.prompt.sections import (
     identity_section,
     safety_section,
     style_section,
+    task_hints_section,
     tool_rules_section,
 )
 
@@ -91,6 +92,7 @@ class SystemPromptBuilder:
         os_info: str | None = None,
         branch: str | None = None,
         git_status: str | None = None,
+        task_hints: dict[str, str] | None = None,
     ) -> list[dict[str, Any]]:
         """Assemble the full system prompt as annotated content blocks.
 
@@ -102,6 +104,8 @@ class SystemPromptBuilder:
             os_info: OS description for the environment section.
             branch: Git branch name for the git section.
             git_status: Git status summary for the git section.
+            task_hints: Optional classifier-derived hints rendered as a
+                dynamic section (phase, domain, complexity, etc.).
 
         Returns:
             A list of content block dicts suitable for use as the
@@ -112,6 +116,7 @@ class SystemPromptBuilder:
             os_info=os_info,
             branch=branch,
             git_status=git_status,
+            task_hints=task_hints,
         )
         return self._strategy.annotate(sections)
 
@@ -122,17 +127,20 @@ class SystemPromptBuilder:
         os_info: str | None = None,
         branch: str | None = None,
         git_status: str | None = None,
+        task_hints: dict[str, str] | None = None,
     ) -> str:
         """Assemble the full system prompt as a plain text string.
 
         Convenience method for contexts that don't need cache annotations
-        (e.g., logging, testing).
+        (e.g., logging, testing, providers without cache support).
 
         Args:
             cwd: Current working directory for the environment section.
             os_info: OS description for the environment section.
             branch: Git branch name for the git section.
             git_status: Git status summary for the git section.
+            task_hints: Optional classifier-derived hints rendered as a
+                dynamic section.
 
         Returns:
             The assembled prompt as a single string with sections
@@ -143,8 +151,9 @@ class SystemPromptBuilder:
             os_info=os_info,
             branch=branch,
             git_status=git_status,
+            task_hints=task_hints,
         )
-        return "\n\n".join(s.content for s in sections)
+        return "\n\n".join(s.content for s in sections if s.content)
 
     def _collect_sections(
         self,
@@ -153,6 +162,7 @@ class SystemPromptBuilder:
         os_info: str | None,
         branch: str | None,
         git_status: str | None,
+        task_hints: dict[str, str] | None = None,
     ) -> list[PromptSection]:
         """Gather all sections in order: static first, then dynamic.
 
@@ -161,6 +171,7 @@ class SystemPromptBuilder:
             os_info: OS description.
             branch: Git branch name.
             git_status: Git status summary.
+            task_hints: Optional classifier-derived hints.
 
         Returns:
             Ordered list of all prompt sections.
@@ -177,6 +188,11 @@ class SystemPromptBuilder:
             sections.append(environment_section(cwd, os_info))
         if branch and git_status:
             sections.append(git_section(branch, git_status))
+
+        if task_hints:
+            hint_section = task_hints_section(task_hints)
+            if hint_section.content:
+                sections.append(hint_section)
 
         sections.extend(self._extra_dynamic)
         return sections

@@ -239,6 +239,115 @@ def _apply_tool_description_overrides(
     return copied_tools
 
 
+def _collect_prompt_context() -> tuple[str | None, str | None, str | None, str | None]:
+    """Gather cwd / os / branch / git-status for the dynamic prompt sections.
+
+    Every lookup is best-effort and cheap (no subprocess if not needed).
+    Returns ``None`` for any field that can't be determined so the builder
+    can omit the corresponding section. Designed for hot-path use — a
+    single subprocess timeout budget of 2s per git call.
+    """
+    import platform
+    import subprocess
+
+    cwd: str | None
+    try:
+        cwd = os.getcwd()
+    except OSError:
+        cwd = None
+
+    os_info: str | None = f"{platform.system()} {platform.release()}".strip() or None
+
+    branch: str | None = None
+    git_status: str | None = None
+    try:
+        branch = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        ).strip() or None
+        status_out = subprocess.check_output(
+            ["git", "status", "--short"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        )
+        git_status = (
+            "clean" if not status_out.strip() else f"{len(status_out.splitlines())} changes"
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        # Not in a git repo, or git unavailable — leave as None so the
+        # builder skips the git section entirely.
+        pass
+
+    return cwd, os_info, branch, git_status
+
+
+def _build_pack_system_prompt(
+    *,
+    model: str | BaseChatModel | None,
+    system_prompt: str | SystemMessage | None,
+    task_hints: dict[str, str] | None,
+) -> str | SystemMessage:
+    """Assemble Pack's system prompt using `SystemPromptBuilder`.
+
+    Produces a `SystemMessage` with provider-aware cache markers when the
+    target model supports prompt caching (Anthropic) and a plain text
+    string otherwise, so downstream providers that reject content blocks
+    (e.g., OpenRouter against some open-source models) keep working.
+    """
+    from deepagents.prompt.builder import SystemPromptBuilder
+
+    # `model` can be a string (e.g. "anthropic/claude-sonnet-4-6",
+    # "openrouter:z-ai/glm-5.1") or a BaseChatModel instance. Strings can
+    # be used directly; instances go through get_model_identifier.
+    if isinstance(model, str):
+        model_name = model
+    elif model is not None:
+        try:
+            model_name = get_model_identifier(model)
+        except (AttributeError, TypeError):  # defensive: unknown model shape
+            model_name = ""
+    else:
+        model_name = ""
+    builder = SystemPromptBuilder(model_name=model_name)
+
+    if system_prompt is not None:
+        user_text = (
+            system_prompt.content
+            if isinstance(system_prompt, SystemMessage)
+            else system_prompt
+        )
+        if isinstance(user_text, str) and user_text.strip():
+            builder.add_static_section(user_text)
+
+    cwd, os_info, branch, git_status = _collect_prompt_context()
+
+    # Anthropic is the only provider that benefits from content-block
+    # output with cache_control markers. Others get the plain-text build
+    # so the final_system_prompt type matches upstream expectations.
+    from deepagents.prompt.cache_strategy import AnthropicCacheStrategy
+
+    if isinstance(builder.strategy, AnthropicCacheStrategy):
+        blocks = builder.build(
+            cwd=cwd,
+            os_info=os_info,
+            branch=branch,
+            git_status=git_status,
+            task_hints=task_hints,
+        )
+        return SystemMessage(content=blocks)
+
+    return builder.build_text(
+        cwd=cwd,
+        os_info=os_info,
+        branch=branch,
+        git_status=git_status,
+        task_hints=task_hints,
+    )
+
+
 def create_deep_agent(  # noqa: C901, PLR0912, PLR0915  # Complex graph assembly logic with many conditional branches
     model: str | BaseChatModel | None = None,
     tools: Sequence[BaseTool | Callable | dict[str, Any]] | None = None,
@@ -258,6 +367,7 @@ def create_deep_agent(  # noqa: C901, PLR0912, PLR0915  # Complex graph assembly
     debug: bool = False,
     name: str | None = None,
     cache: BaseCache | None = None,
+    task_hints: dict[str, str] | None = None,
 ) -> CompiledStateGraph[AgentState[ResponseT], ContextT, _InputAgentState, _OutputAgentState[ResponseT]]:  # ty: ignore[invalid-type-arguments]  # ty can't verify generic TypedDicts satisfy StateLike bound
     """Create a Deep Agent.
 
@@ -631,22 +741,15 @@ def create_deep_agent(  # noqa: C901, PLR0912, PLR0915  # Complex graph assembly
 
     # Prompt assembly: Pack's SystemPromptBuilder (when PACK_ENABLED) or the
     # upstream profile-aware path (otherwise). The Pack path is self-contained
-    # — it folds user system_prompt into the builder as a static section and
-    # produces final_system_prompt directly. The upstream path assembles a
-    # profile-aware base_prompt and concatenates with user system_prompt below.
+    # — it folds user system_prompt into the builder as a static section, adds
+    # environment/git/task-hints as dynamic sections, and produces final
+    # system prompt with provider-aware cache annotations.
     if os.environ.get("PACK_ENABLED"):
-        from deepagents.prompt.builder import SystemPromptBuilder
-
-        builder = SystemPromptBuilder()
-        if system_prompt is not None:
-            user_text = (
-                system_prompt.content
-                if isinstance(system_prompt, SystemMessage)
-                else system_prompt
-            )
-            if isinstance(user_text, str):
-                builder.add_static_section(user_text)
-        final_system_prompt: str | SystemMessage = builder.build_text()
+        final_system_prompt: str | SystemMessage = _build_pack_system_prompt(
+            model=model,
+            system_prompt=system_prompt,
+            task_hints=task_hints,
+        )
     else:
         base_prompt = _profile.base_system_prompt if _profile.base_system_prompt is not None else BASE_AGENT_PROMPT
         if _profile.system_prompt_suffix is not None:

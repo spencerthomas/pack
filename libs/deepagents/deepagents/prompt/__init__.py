@@ -20,8 +20,10 @@ from deepagents.prompt.sections import (
     identity_section,
     safety_section,
     style_section,
+    task_hints_section,
     tool_rules_section,
 )
+from deepagents.prompt.task_classifier import TaskHints, classify
 
 __all__ = [
     "AnthropicCacheStrategy",
@@ -30,11 +32,14 @@ __all__ = [
     "OpenAICacheStrategy",
     "PromptSection",
     "SystemPromptBuilder",
+    "TaskHints",
+    "classify",
     "detect_strategy",
     "environment_section",
     "git_section",
     "identity_section",
     "safety_section",
     "style_section",
+    "task_hints_section",
     "tool_rules_section",
 ]

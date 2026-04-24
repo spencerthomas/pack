@@ -148,3 +148,30 @@ def git_section(branch: str, status: str) -> PromptSection:
 - Branch: {branch}
 - Status: {status}"""
     return PromptSection(content=content, cacheable=False)
+
+
+def task_hints_section(hints: dict[str, str]) -> PromptSection:
+    """Build a dynamic section of task-specific guidance.
+
+    Callers pass the output of a task classifier (phase, domain, etc.)
+    and this renders targeted hints the agent can use to shape its
+    approach without bloating the prompt for unrelated tasks.
+
+    Args:
+        hints: Flat dict of hint keys to values. Unknown keys render
+            under a generic "Task hints" heading so new classifier
+            categories don't require edits here.
+
+    Returns:
+        A non-cacheable section. Empty hints produce an empty-content
+        section callers can filter out.
+    """
+    if not hints:
+        return PromptSection(content="", cacheable=False)
+
+    lines = ["## Task hints"]
+    for key, value in hints.items():
+        if value:
+            lines.append(f"- **{key}:** {value}")
+    content = "\n".join(lines)
+    return PromptSection(content=content, cacheable=False)
