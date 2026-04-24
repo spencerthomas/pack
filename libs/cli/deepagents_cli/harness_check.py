@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from deepagents_cli.arch_lint import check_file as arch_check_file
+from deepagents_cli.business_rule_checker import run_business_rules
 
 logger = logging.getLogger(__name__)
 
@@ -225,6 +226,29 @@ def _run_typecheck(repo_root: Path) -> CheckResult:
     )
 
 
+def _run_business_rules(repo_root: Path) -> CheckResult:
+    """Run invariants declared in any ``.context-packs/*/checks.yaml``."""
+    status, summary, violations = run_business_rules(repo_root)
+    return CheckResult(
+        name="business-rules",
+        status=status,
+        summary=summary,
+        details={
+            "violations": [
+                {
+                    "invariant_id": v.invariant_id,
+                    "severity": v.severity,
+                    "description": v.description,
+                    "file": v.file,
+                    "line": v.line,
+                    "detail": v.detail,
+                }
+                for v in violations
+            ]
+        },
+    )
+
+
 def _run_docs_lint(repo_root: Path) -> CheckResult:
     ruff = shutil.which("ruff")
     if ruff is None:
@@ -243,6 +267,7 @@ def _run_docs_lint(repo_root: Path) -> CheckResult:
 
 CHECK_REGISTRY: dict[str, _Runner] = {
     "arch-lint": _run_arch_lint,
+    "business-rules": _run_business_rules,
     "tests": _run_tests,
     "lint": _run_ruff_lint,
     "typecheck": _run_typecheck,

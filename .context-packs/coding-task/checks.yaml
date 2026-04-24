@@ -1,0 +1,48 @@
+# Executable invariants for the coding-task pack.
+#
+# These are the first dogfood invariants for Pack itself. They're
+# intentionally conservative: the goal at M5 is to prove the mechanism
+# end-to-end, not to encode every rule the project has. Stricter
+# invariants can land incrementally as we learn which ones actually
+# catch regressions.
+
+invariants:
+  - id: no_leftover_ics_uploads
+    description: >
+      Stray .ics files from agent test runs (e.g. alice_calendar.ics,
+      bob_calendar.ics) must not land in the checked-in tree. They're
+      the classic "agent was experimenting and forgot to clean up"
+      artefact.
+    severity: warn
+    matcher: absent_regex
+    # Any .ics file anywhere under the repo is suspicious — we don't
+    # ship calendar data as part of Pack.
+    pattern: '^BEGIN:VCALENDAR'
+    paths:
+      - "libs/**/*.ics"
+
+  - id: middleware_has_tests
+    description: >
+      Every harness middleware module in libs/cli/deepagents_cli must
+      have a matching test_<stem>.py under tests/unit_tests/. Keeps
+      the middleware catalog honest.
+    severity: info
+    matcher: file_exists
+    target: libs/cli/tests/unit_tests/test_{stem}.py
+    paths:
+      - libs/cli/deepagents_cli/scope_enforcement.py
+      - libs/cli/deepagents_cli/arch_lint.py
+      - libs/cli/deepagents_cli/ratchet.py
+      - libs/cli/deepagents_cli/policy.py
+      - libs/cli/deepagents_cli/reviewer.py
+      - libs/cli/deepagents_cli/reviewer_middleware.py
+      - libs/cli/deepagents_cli/output_ceiling.py
+      - libs/cli/deepagents_cli/budget_observable.py
+      - libs/cli/deepagents_cli/precompletion_checklist.py
+      - libs/cli/deepagents_cli/progressive_disclosure.py
+      - libs/cli/deepagents_cli/tool_result_enrichment.py
+      - libs/cli/deepagents_cli/harness_config.py
+      - libs/cli/deepagents_cli/harness_check.py
+      - libs/cli/deepagents_cli/harness_discover.py
+      - libs/cli/deepagents_cli/trace_analyzer.py
+      - libs/cli/deepagents_cli/business_rule_checker.py

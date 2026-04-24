@@ -293,3 +293,93 @@ async def test_async_after_model_matches_sync_behavior() -> None:
     result = await m.aafter_model(state, Mock())
     assert result is not None
     assert "REQUEST_CHANGES" in str(result["messages"][0].content)
+
+
+# ---------------------------------------------------------------------------
+# Evidence extraction — PR 5
+# ---------------------------------------------------------------------------
+
+
+def _ai_with_tool_calls(content: str, tool_calls: list[dict[str, Any]]) -> AIMessage:
+    msg = AIMessage(content=content)
+    msg.tool_calls = tool_calls
+    return msg
+
+
+def test_evidence_empty_when_no_writes() -> None:
+    reviewer = _stub_reviewer(ReviewVerdict(status="approve", summary="ok"))
+    m = ReviewerMiddleware(
+        reviewer=reviewer,
+        policy=TaskPolicy(task_type="feature", require_reviewer=True),
+    )
+    evidence = m._assemble_evidence(
+        [HumanMessage(content="task"), _ai("just thinking")]
+    )
+    assert evidence == {}
+
+
+def test_evidence_includes_diff_summary_from_write_calls() -> None:
+    reviewer = _stub_reviewer(ReviewVerdict(status="approve", summary="ok"))
+    m = ReviewerMiddleware(
+        reviewer=reviewer,
+        policy=TaskPolicy(task_type="feature", require_reviewer=True),
+    )
+    msgs = [
+        HumanMessage(content="task"),
+        _ai_with_tool_calls(
+            "writing",
+            [
+                {"name": "write_file", "args": {"path": "/app/a.py", "content": "x"}, "id": "1"},
+                {"name": "edit_file", "args": {"path": "/app/a.py", "old_string": "x", "new_string": "y"}, "id": "2"},
+                {"name": "write_file", "args": {"path": "/app/b.py", "content": "z"}, "id": "3"},
+                {"name": "read_file", "args": {"path": "/app/c.py"}, "id": "4"},
+            ],
+        ),
+        _ai("done"),
+    ]
+    evidence = m._assemble_evidence(msgs)
+    assert "diff_summary" in evidence
+    assert "`/app/a.py` (2 writes)" in evidence["diff_summary"]
+    assert "`/app/b.py` (1 write)" in evidence["diff_summary"]
+    # read_file is not a write — excluded
+    assert "/app/c.py" not in evidence["diff_summary"]
+
+
+def test_reviewer_receives_evidence_on_invocation() -> None:
+    verdict = ReviewVerdict(status="approve", summary="lgtm")
+    reviewer = _stub_reviewer(verdict)
+    policy = TaskPolicy(task_type="feature", require_reviewer=True)
+    m = ReviewerMiddleware(reviewer=reviewer, policy=policy)
+
+    state = _state(
+        [
+            HumanMessage(content="task"),
+            _ai_with_tool_calls(
+                "writing",
+                [{"name": "write_file", "args": {"path": "/app/a.py", "content": "x"}, "id": "1"}],
+            ),
+            _ai("done"),
+        ]
+    )
+    m.after_model(state, Mock())
+    # Confirm the reviewer.review kwargs include an evidence dict with
+    # diff_summary present. Mock captures kwargs via call_args_list.
+    reviewer.review.assert_called_once()
+    _args, kwargs = reviewer.review.call_args
+    assert "evidence" in kwargs
+    assert "diff_summary" in kwargs["evidence"]
+    assert "/app/a.py" in kwargs["evidence"]["diff_summary"]
+
+
+def test_evidence_diff_truncates_at_max_files() -> None:
+    from deepagents_cli.reviewer_middleware import _extract_diff_summary
+
+    tool_calls = [
+        {"name": "write_file", "args": {"path": f"/app/f{i}.py", "content": "x"}, "id": str(i)}
+        for i in range(30)
+    ]
+    msg = _ai_with_tool_calls("burst", tool_calls)
+    summary = _extract_diff_summary([msg], max_files=5)
+    assert "f0.py" in summary
+    assert "f4.py" in summary
+    assert "25 more file(s) not listed" in summary

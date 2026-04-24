@@ -95,6 +95,54 @@ def _recent_agent_messages(messages: list[Any], n: int = 6) -> list[Any]:
     return messages[-n:]
 
 
+_WRITE_TOOL_NAMES = frozenset({"write_file", "edit_file"})
+
+
+def _extract_diff_summary(messages: list[Any], *, max_files: int = 25) -> str:
+    """Summarize the files the main agent touched via write_file/edit_file.
+
+    Scans every ``AIMessage.tool_calls`` for write_file / edit_file
+    invocations and groups them by path. Output is a short bulleted
+    list — path + write count — that the reviewer can compare against
+    the task description. Deliberately **doesn't** include the raw
+    content: if the reviewer needs the text it's already in the
+    trajectory dump under the adjacent ToolMessage.
+
+    Returns an empty string when the agent didn't write anything, so
+    the caller can drop the section from the prompt.
+    """
+    counts: dict[str, int] = {}
+    order: list[str] = []
+    for msg in messages:
+        if not isinstance(msg, AIMessage):
+            continue
+        for call in getattr(msg, "tool_calls", None) or []:
+            name = call.get("name") if isinstance(call, dict) else None
+            if name not in _WRITE_TOOL_NAMES:
+                continue
+            args = call.get("args") or {}
+            path = args.get("path") or args.get("file_path")
+            if not isinstance(path, str) or not path.strip():
+                continue
+            if path not in counts:
+                order.append(path)
+            counts[path] = counts.get(path, 0) + 1
+
+    if not order:
+        return ""
+
+    # Cap the list so a runaway iterative-write pattern doesn't
+    # explode the reviewer's token budget.
+    truncated = order[:max_files]
+    lines = [
+        f"- `{path}` ({counts[path]} write{'s' if counts[path] > 1 else ''})"
+        for path in truncated
+    ]
+    if len(order) > max_files:
+        lines.append(f"- ... {len(order) - max_files} more file(s) not listed")
+    return "\n".join(lines)
+
+
 class ReviewerMiddleware(AgentMiddleware):
     """Invoke the reviewer when policy requires it; gate termination on verdict.
 
@@ -161,9 +209,11 @@ class ReviewerMiddleware(AgentMiddleware):
 
         task_instruction = _extract_task_instruction(messages)
         recent = _recent_agent_messages(messages)
+        evidence = self._assemble_evidence(messages)
         verdict = self.reviewer.review(
             task_instruction=task_instruction,
             main_agent_messages=recent,
+            evidence=evidence,
         )
 
         logger.info(
@@ -183,6 +233,23 @@ class ReviewerMiddleware(AgentMiddleware):
             "messages": [HumanMessage(content=verdict.as_feedback_text())],
             "jump_to": "model",
         }
+
+    def _assemble_evidence(self, messages: list[Any]) -> dict[str, str]:
+        """Collect structured signals the reviewer should see beyond prose.
+
+        Current set (PR 5): the diff summary — which files the agent
+        wrote and how many times each. Future additions (harness
+        check output, arch-lint JSON) can extend this dict without
+        changing the reviewer contract.
+
+        Returns an empty dict when nothing is worth sending so the
+        prompt stays tight.
+        """
+        evidence: dict[str, str] = {}
+        diff = _extract_diff_summary(messages)
+        if diff:
+            evidence["diff_summary"] = diff
+        return evidence
 
     @hook_config(can_jump_to=["model"])
     async def aafter_model(
@@ -204,9 +271,11 @@ class ReviewerMiddleware(AgentMiddleware):
 
         task_instruction = _extract_task_instruction(messages)
         recent = _recent_agent_messages(messages)
+        evidence = self._assemble_evidence(messages)
         verdict = await self.reviewer.areview(
             task_instruction=task_instruction,
             main_agent_messages=recent,
+            evidence=evidence,
         )
 
         logger.info(

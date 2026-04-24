@@ -103,6 +103,10 @@ You are given:
 - The original task the main agent was asked to do.
 - The main agent's final response and the recent conversation that
   led to it.
+- Optionally: a summary of the files the agent changed (diff evidence),
+  the output of any verification checks that ran (tests, arch-lint),
+  and other structured signals. When present, prioritize these over
+  conversational claims — the evidence is ground truth.
 
 Your job is to produce a verdict with one of three statuses:
 
@@ -112,6 +116,12 @@ Your job is to produce a verdict with one of three statuses:
   be fixed before it terminates. You must list each issue concretely.
 - `block`: the work is fundamentally off-track — wrong approach,
   dangerous change, out-of-scope modification. Escalate to a human.
+
+When evidence contradicts the agent's narrative, trust the evidence.
+If the agent claimed tests pass but the test output shows failures,
+that's request_changes at minimum. If arch-lint reports a violation,
+either the agent's change is wrong or the violation was pre-existing
+debt — say which in the summary.
 
 Output format: a JSON object with these fields only, wrapped in a
 ```json fenced block.
@@ -238,6 +248,7 @@ class ReviewerSubAgent:
         *,
         task_instruction: str,
         main_agent_messages: list[Any],
+        evidence: dict[str, str] | None = None,
     ) -> ReviewVerdict:
         """Run the reviewer synchronously; return a structured verdict.
 
@@ -247,6 +258,11 @@ class ReviewerSubAgent:
                 minimum the final AIMessage, ideally the last 3-5 turns
                 for context. The reviewer doesn't need the full
                 trajectory and sending it all wastes tokens.
+            evidence: Optional structured signals assembled by the
+                middleware — diff_summary, test_output, arch_lint_output,
+                any key caller wants to surface. Each value is rendered
+                under its own H2 header in the review prompt. Keys are
+                used verbatim as section titles (use Title Case).
 
         Returns:
             A ``ReviewVerdict``. Never raises — malformed model output
@@ -256,6 +272,7 @@ class ReviewerSubAgent:
         review_messages = self._build_review_messages(
             task_instruction=task_instruction,
             main_agent_messages=main_agent_messages,
+            evidence=evidence,
         )
         try:
             response = self.model.invoke(review_messages)
@@ -274,11 +291,13 @@ class ReviewerSubAgent:
         *,
         task_instruction: str,
         main_agent_messages: list[Any],
+        evidence: dict[str, str] | None = None,
     ) -> ReviewVerdict:
         """Async variant of ``review``."""
         review_messages = self._build_review_messages(
             task_instruction=task_instruction,
             main_agent_messages=main_agent_messages,
+            evidence=evidence,
         )
         try:
             response = await self.model.ainvoke(review_messages)
@@ -297,15 +316,18 @@ class ReviewerSubAgent:
         *,
         task_instruction: str,
         main_agent_messages: list[Any],
+        evidence: dict[str, str] | None = None,
     ) -> list[Any]:
         """Assemble the message list for the reviewer invocation."""
         trajectory_dump = _render_trajectory(main_agent_messages)
         prefix = self.instruction_prefix.strip()
         prefix_text = f"{prefix}\n\n" if prefix else ""
+        evidence_text = _render_evidence(evidence) if evidence else ""
         user_text = (
             f"{prefix_text}## Task given to the main agent\n\n"
             f"{task_instruction.strip()}\n\n"
-            f"## Main agent's recent trajectory\n\n{trajectory_dump}\n\n"
+            f"## Main agent's recent trajectory\n\n{trajectory_dump}\n"
+            f"{evidence_text}\n"
             "Produce your verdict as JSON now."
         )
         return [
@@ -315,6 +337,26 @@ class ReviewerSubAgent:
 
 
 # --- Helpers --------------------------------------------------------------
+
+
+def _render_evidence(evidence: dict[str, str]) -> str:
+    """Render the evidence dict as H2-delimited sections in the prompt.
+
+    Section ordering is stable by key sort so reviews of the same
+    evidence produce identical prompts. Empty values are dropped so
+    an absent diff or test output doesn't waste tokens on
+    placeholders.
+    """
+    blocks: list[str] = []
+    for key in sorted(evidence):
+        value = evidence[key]
+        if not isinstance(value, str) or not value.strip():
+            continue
+        header = key.replace("_", " ").title()
+        blocks.append(f"## {header}\n\n{value.strip()}")
+    if not blocks:
+        return ""
+    return "\n\n" + "\n\n".join(blocks)
 
 
 def _render_trajectory(messages: list[Any], max_chars: int = 12_000) -> str:

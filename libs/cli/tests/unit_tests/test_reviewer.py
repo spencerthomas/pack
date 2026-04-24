@@ -300,3 +300,98 @@ def test_review_with_custom_system_prompt() -> None:
     )
     args, _kwargs = model.invoke.call_args
     assert args[0][0].content == "CUSTOM_PROMPT"
+
+
+# ---------------------------------------------------------------------------
+# Evidence rendering (PR 5)
+# ---------------------------------------------------------------------------
+
+
+def test_review_without_evidence_omits_evidence_section() -> None:
+    model = _mock_model(_FENCED_APPROVE)
+    reviewer = ReviewerSubAgent(model=model)
+    reviewer.review(
+        task_instruction="task",
+        main_agent_messages=[AIMessage(content="final")],
+    )
+    args, _kwargs = model.invoke.call_args
+    user_content = str(args[0][1].content)
+    # Nothing shaped like an evidence H2 header shows up
+    assert "## Diff Summary" not in user_content
+    assert "## Test Output" not in user_content
+
+
+def test_review_with_evidence_renders_each_section() -> None:
+    model = _mock_model(_FENCED_APPROVE)
+    reviewer = ReviewerSubAgent(model=model)
+    reviewer.review(
+        task_instruction="task",
+        main_agent_messages=[AIMessage(content="final")],
+        evidence={
+            "diff_summary": "- `/app/a.py` (2 writes)",
+            "test_output": "3 passed, 1 failed",
+        },
+    )
+    args, _kwargs = model.invoke.call_args
+    user_content = str(args[0][1].content)
+    assert "## Diff Summary" in user_content
+    assert "`/app/a.py`" in user_content
+    assert "## Test Output" in user_content
+    assert "1 failed" in user_content
+
+
+def test_review_empty_evidence_values_are_dropped() -> None:
+    model = _mock_model(_FENCED_APPROVE)
+    reviewer = ReviewerSubAgent(model=model)
+    reviewer.review(
+        task_instruction="task",
+        main_agent_messages=[AIMessage(content="final")],
+        evidence={"diff_summary": "- `/app/a.py`", "test_output": "   "},
+    )
+    args, _kwargs = model.invoke.call_args
+    user_content = str(args[0][1].content)
+    assert "## Diff Summary" in user_content
+    # Empty test_output is dropped so no header renders
+    assert "## Test Output" not in user_content
+
+
+def test_review_evidence_sections_ordered_by_sorted_key() -> None:
+    model = _mock_model(_FENCED_APPROVE)
+    reviewer = ReviewerSubAgent(model=model)
+    reviewer.review(
+        task_instruction="task",
+        main_agent_messages=[AIMessage(content="final")],
+        evidence={
+            "test_output": "all good",
+            "arch_lint_output": "clean",
+            "diff_summary": "- `/a`",
+        },
+    )
+    args, _kwargs = model.invoke.call_args
+    user_content = str(args[0][1].content)
+    # Alphabetical sort: arch_lint < diff < test
+    idx_arch = user_content.index("Arch Lint Output")
+    idx_diff = user_content.index("Diff Summary")
+    idx_test = user_content.index("Test Output")
+    assert idx_arch < idx_diff < idx_test
+
+
+async def test_async_review_passes_evidence_through() -> None:
+    model = _mock_model(_FENCED_APPROVE)
+    reviewer = ReviewerSubAgent(model=model)
+    # Record what the async model sees
+    captured: dict[str, Any] = {}
+
+    async def capture_ainvoke(messages: Any) -> AIMessage:
+        captured["messages"] = messages
+        return AIMessage(content=_FENCED_APPROVE)
+
+    model.ainvoke = capture_ainvoke
+    await reviewer.areview(
+        task_instruction="async task",
+        main_agent_messages=[AIMessage(content="final")],
+        evidence={"diff_summary": "- `/a.py`"},
+    )
+    user_content = str(captured["messages"][1].content)
+    assert "## Diff Summary" in user_content
+    assert "`/a.py`" in user_content

@@ -108,9 +108,10 @@ Decides what kind of run is happening and what bounds apply.
 - **Purpose:** PR 3 from the review plan. Composes the checks the
   harness already knows about into a single callable that emits
   machine-readable JSON and human-readable text.
-- **Registered checks:** `arch-lint` (in-process), `tests` (uv run
-  pytest or bare pytest), `lint` (ruff check), `typecheck` (ty
-  then mypy fallback), `docs-lint` (ruff --select D).
+- **Registered checks:** `arch-lint` (in-process), `business-rules`
+  (in-process invariant runner), `tests` (uv run pytest or bare
+  pytest), `lint` (ruff check), `typecheck` (ty then mypy fallback),
+  `docs-lint` (ruff --select D).
 - **Result shape:** every check produces a `CheckResult(name,
   status, summary, command, details)` with status in
   `{pass, fail, not_configured, skip}`. Unknown check names report
@@ -120,6 +121,26 @@ Decides what kind of run is happening and what bounds apply.
 - **CLI entry point:** callable as `run_checks(repo_root,
   checks=...)`. A thin CLI wrapper can land next without touching
   the composition logic.
+
+### Business-rule checker (executable invariants)
+
+- **File:** `libs/cli/deepagents_cli/business_rule_checker.py`
+- **Tests:** `libs/cli/tests/unit_tests/test_business_rule_checker.py`
+  (39 tests)
+- **Purpose:** M5 of the review plan. Context packs gain a
+  `checks.yaml` that declares invariants the harness enforces.
+- **Matcher types (initial):** `regex` (at least one file must
+  match), `absent_regex` (no file may match), `file_exists` (for
+  each file in `paths`, a computed companion `target` must exist —
+  supports `{stem}` / `{path}` interpolation).
+- **Severity:** `block` flips the check to fail; `warn` and `info`
+  surface details without blocking.
+- **First dogfood:** `.context-packs/coding-task/checks.yaml`
+  carries two invariants — `no_leftover_ics_uploads` (warn) and
+  `middleware_has_tests` (info). The file is the template external
+  users copy when starting.
+- **Integration:** wired into `harness_check` as the
+  `business-rules` runner.
 
 ### ArchLintMiddleware + `check_file`
 
@@ -292,8 +313,8 @@ Runs checks during and after the main agent's work.
 
 - **Files:** `libs/cli/deepagents_cli/reviewer.py`,
   `libs/cli/deepagents_cli/reviewer_middleware.py`
-- **Tests:** `libs/cli/tests/unit_tests/test_reviewer.py` (27 tests),
-  `test_reviewer_middleware.py` (21 tests)
+- **Tests:** `libs/cli/tests/unit_tests/test_reviewer.py` (32 tests),
+  `test_reviewer_middleware.py` (25 tests)
 - **Hook:** `after_model` with `can_jump_to=["model"]`
 - **Activates:** `task_policy.require_reviewer == True` (set for
   `bugfix`, `feature`, `refactor`, `migration`, `security-fix`,
@@ -304,6 +325,13 @@ Runs checks during and after the main agent's work.
 - **Verdict:** structured `ReviewVerdict(status, summary, concerns,
   required_fixes)` parsed from JSON-fenced model output. Malformed
   output becomes `block` rather than raising.
+- **Evidence-based (PR 5):** the middleware assembles a diff
+  summary from the main agent's `write_file`/`edit_file` tool
+  calls and passes it to the reviewer as structured evidence.
+  The reviewer prompt instructs the model to prioritize evidence
+  over conversational claims — if the agent said "tests pass" but
+  the test output in evidence shows failures, that's request_changes
+  at minimum.
 - **Loop control:** `approve` → termination proceeds.
   `request_changes`/`block` → verdict injected as HumanMessage,
   jumps back to model. `max_reviews=2` caps total passes.
@@ -333,6 +361,33 @@ Runs checks during and after the main agent's work.
 Trace analyzer and reflection watcher provide the raw signal; the
 lesson-promotion automation that turns signal into durable artifacts
 is the next phase.
+
+### Promote-lesson automation
+
+- **File:** `libs/cli/deepagents_cli/promote_lesson.py`
+- **Tests:** `libs/cli/tests/unit_tests/test_promote_lesson.py`
+  (20 tests)
+- **Purpose:** M6 of the review plan. Turns a `TraceInsight` into a
+  staged artifact proposal under `.harness/pending-promotions/`.
+- **Inputs:** a trial directory (or a bare `TraceInsight`) plus
+  optional explicit `harness_dir`.
+- **Outputs:** `PromotionProposal(category, confidence, title,
+  target_path, body, evidence, rationale)` plus a staged markdown
+  file at `.harness/pending-promotions/<timestamp>-<category>-<trial>.md`.
+- **Category → target:**
+  - `missing_context` → append to `coding-task/rules.md`
+  - `missing_rule` → rule entry in `coding-task/rules.md` (rule
+    already enforced; context just needed to echo it)
+  - `missing_tool` → no single target — architectural decision
+  - `missing_example` → new file in `coding-task/examples/`
+  - `model_capability_limit` → append to `docs/harness/known-limits.md`
+- **Never auto-commits:** proposals stage to
+  `.harness/pending-promotions/` for human review. Governance stays
+  with the operator.
+- **CLI entry:** `promote_from_trial(trial_dir)` reads a Harbor
+  trial, runs the analyzer, and stages unless the insight is a
+  low-confidence `model_capability_limit` (skips to avoid operator
+  inbox spam on provider blips).
 
 ### Trace analyzer
 
@@ -457,7 +512,12 @@ Total harness surface coverage: ~230 tests, all passing.
 - **M1** — ✅ `.harness/config.yaml` declarative control plane.
 - **M2** — ✅ ratchet runtime persistence wired through Harbor.
 - **PR 3** — ✅ `harness check` unified pipeline.
-- **Phase F** — ⏳ autonomous cleanup agents.
+- **PR 5** — ✅ diff-aware reviewer (evidence-based review).
+- **M5** — ✅ executable invariants in context packs via
+  `business-rule-checker`.
+- **M6** — ✅ `promote-lesson` automation with staged proposals.
+- **Phase F** — ⏳ autonomous cleanup agents (the only remaining
+  roadmap phase).
 
 See [`../roadmap/agent-harness-roadmap.md`](../roadmap/agent-harness-roadmap.md)
 for the remaining phases and design notes.
