@@ -290,6 +290,7 @@ def _build_pack_system_prompt(
     system_prompt: str | SystemMessage | None,
     task_hints: dict[str, str] | None,
     prompt_env_override: dict[str, str | None] | None = None,
+    context_pack: Any = None,
 ) -> str | SystemMessage:
     """Assemble Pack's system prompt using `SystemPromptBuilder`.
 
@@ -305,6 +306,7 @@ def _build_pack_system_prompt(
             process state doesn't leak into the container agent's prompt.
     """
     from deepagents.prompt.builder import SystemPromptBuilder
+    from deepagents.prompt.context_pack import ContextPack
 
     # `model` can be a string (e.g. "anthropic/claude-sonnet-4-6",
     # "openrouter:z-ai/glm-5.1") or a BaseChatModel instance. Strings can
@@ -328,6 +330,12 @@ def _build_pack_system_prompt(
         )
         if isinstance(user_text, str) and user_text.strip():
             builder.add_static_section(user_text)
+
+    # Attach the resolved context pack (Phase B.2). Loaded packs become
+    # cacheable static sections so they ride along with prompt caching
+    # on Anthropic models and don't bloat the per-turn dynamic portion.
+    if isinstance(context_pack, ContextPack):
+        builder.add_context_pack(context_pack)
 
     if prompt_env_override is None:
         cwd, os_info, branch, git_status = _collect_prompt_context()
@@ -382,6 +390,7 @@ def create_deep_agent(  # noqa: C901, PLR0912, PLR0915  # Complex graph assembly
     cache: BaseCache | None = None,
     task_hints: dict[str, str] | None = None,
     prompt_env_override: dict[str, str | None] | None = None,
+    context_pack: Any = None,
 ) -> CompiledStateGraph[AgentState[ResponseT], ContextT, _InputAgentState, _OutputAgentState[ResponseT]]:  # ty: ignore[invalid-type-arguments]  # ty can't verify generic TypedDicts satisfy StateLike bound
     """Create a Deep Agent.
 
@@ -764,6 +773,7 @@ def create_deep_agent(  # noqa: C901, PLR0912, PLR0915  # Complex graph assembly
             system_prompt=system_prompt,
             task_hints=task_hints,
             prompt_env_override=prompt_env_override,
+            context_pack=context_pack,
         )
     else:
         base_prompt = _profile.base_system_prompt if _profile.base_system_prompt is not None else BASE_AGENT_PROMPT

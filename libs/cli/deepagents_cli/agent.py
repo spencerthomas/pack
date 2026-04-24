@@ -54,6 +54,8 @@ from deepagents_cli.budget_observable import BudgetObservableMiddleware
 from deepagents_cli.output_ceiling import OutputCeilingMiddleware
 from deepagents_cli.policy import TaskPolicy
 from deepagents_cli.progressive_disclosure import ProgressiveDisclosureMiddleware
+from deepagents_cli.reviewer import ReviewerSubAgent
+from deepagents_cli.reviewer_middleware import ReviewerMiddleware
 from deepagents_cli.scope_enforcement import ScopeEnforcementMiddleware
 from deepagents_cli.tool_result_enrichment import ToolResultEnrichmentMiddleware
 from deepagents_cli.loop_detection import LoopDetectionMiddleware
@@ -1032,6 +1034,33 @@ def _build_environment_bootstrap(cwd: Path) -> str:
     )
 
 
+def _resolve_reviewer_model(model: Any) -> Any:
+    """Produce a LangChain chat model suitable for the reviewer pass.
+
+    Accepts whatever ``create_cli_agent`` received as ``model``. Strings
+    are resolved via ``init_chat_model``; concrete ``BaseChatModel``
+    instances are reused. Returns ``None`` on any failure so the caller
+    can skip the reviewer rather than crashing the whole run.
+
+    A subtle decision: the reviewer currently reuses the main agent's
+    model. That keeps configuration simple and avoids a separate key
+    requirement; callers who want a cheaper reviewer can set an explicit
+    ``reviewer_model`` kwarg once we add one (not yet needed).
+    """
+    if model is None:
+        return None
+    if not isinstance(model, str):
+        # Already a BaseChatModel (or similar) — reuse directly.
+        return model
+    try:
+        from langchain.chat_models import init_chat_model
+
+        return init_chat_model(model)
+    except Exception:  # noqa: BLE001  # reviewer failure must never kill the run
+        logger.warning("Could not resolve reviewer model from %r", model, exc_info=True)
+        return None
+
+
 def get_system_prompt(
     assistant_id: str,
     sandbox_type: str | None = None,
@@ -1463,6 +1492,7 @@ def create_cli_agent(
     prompt_env_override: dict[str, str | None] | None = None,
     budget_total_sec: int | None = None,
     task_policy: TaskPolicy | None = None,
+    context_pack: Any = None,
 ) -> tuple[Pregel, CompositeBackend]:
     """Create a CLI-configured agent with flexible options.
 
@@ -1776,6 +1806,20 @@ def create_cli_agent(
         # before the agent can declare done. Targets the "wrong_solution"
         # failure mode where agents submit without running tests.
         agent_middleware.append(PreCompletionChecklistMiddleware())
+        # Reviewer pass (Phase C): when the policy demands it, invoke a
+        # separate reviewer sub-agent before allowing termination. The
+        # reviewer critiques the main agent's work and either approves
+        # or injects specific fixes back into the loop. No-ops when
+        # policy.require_reviewer is False or no model is resolvable.
+        if task_policy is not None and task_policy.require_reviewer:
+            _reviewer_model = _resolve_reviewer_model(model)
+            if _reviewer_model is not None:
+                agent_middleware.append(
+                    ReviewerMiddleware(
+                        reviewer=ReviewerSubAgent(model=_reviewer_model),
+                        policy=task_policy,
+                    ),
+                )
         # Output ceiling: nudge the agent to commit to a solution when
         # cumulative completion tokens spike. Targets the "single-shot
         # dump" failure mode (30-60K tokens of analysis in 2-4 steps
@@ -1919,5 +1963,6 @@ def create_cli_agent(
         subagents=all_subagents or None,
         task_hints=task_hints,
         prompt_env_override=prompt_env_override,
+        context_pack=context_pack,
     ).with_config(config)
     return agent, composite_backend

@@ -220,3 +220,101 @@ def test_override_none_triggers_auto_collection() -> None:
     assert isinstance(result, str)
     # cwd is auto-collected — at least an Environment section should render
     assert "## Environment" in result
+
+
+# ---------------------------------------------------------------------------
+# context_pack — Phase B.2 integration
+# ---------------------------------------------------------------------------
+
+
+def test_context_pack_renders_when_supplied() -> None:
+    from pathlib import Path as _Path
+
+    from deepagents.prompt import ContextPack
+
+    pack = ContextPack(
+        name="test-pack",
+        path=_Path("/tmp/test-pack"),
+        summary="Pack summary content",
+        rules="- Do the thing\n- Don't do the other thing",
+    )
+    result = _build_pack_system_prompt(
+        model="openrouter:z-ai/glm-5.1",
+        system_prompt="HARBOR",
+        task_hints=None,
+        prompt_env_override={},
+        context_pack=pack,
+    )
+    assert isinstance(result, str)
+    assert "## Context pack: test-pack" in result
+    assert "Pack summary content" in result
+    assert "Don't do the other thing" in result
+
+
+def test_empty_context_pack_adds_no_section() -> None:
+    from pathlib import Path as _Path
+
+    from deepagents.prompt import ContextPack
+
+    pack = ContextPack(name="empty", path=_Path("/tmp/empty"))
+    result = _build_pack_system_prompt(
+        model="openrouter:z-ai/glm-5.1",
+        system_prompt="HARBOR",
+        task_hints=None,
+        prompt_env_override={},
+        context_pack=pack,
+    )
+    assert isinstance(result, str)
+    assert "## Context pack" not in result
+
+
+def test_context_pack_none_is_safe() -> None:
+    # Passing None must not crash and must produce normal prompt output.
+    result = _build_pack_system_prompt(
+        model="openrouter:z-ai/glm-5.1",
+        system_prompt="HARBOR",
+        task_hints=None,
+        prompt_env_override={},
+        context_pack=None,
+    )
+    assert isinstance(result, str)
+    assert "HARBOR" in result
+
+
+def test_context_pack_rides_cache_boundary_on_anthropic() -> None:
+    from pathlib import Path as _Path
+
+    from deepagents.prompt import ContextPack
+
+    pack = ContextPack(
+        name="cached-pack",
+        path=_Path("/tmp/cached-pack"),
+        summary="stays stable across runs",
+    )
+    result = _build_pack_system_prompt(
+        model="anthropic/claude-sonnet-4-6",
+        system_prompt="HARBOR",
+        task_hints=None,
+        prompt_env_override={},
+        context_pack=pack,
+    )
+    # On Anthropic we get SystemMessage with content blocks
+    assert isinstance(result, SystemMessage)
+    assert isinstance(result.content, list)
+    cached = [
+        b for b in result.content
+        if isinstance(b, dict) and "cache_control" in b
+    ]
+    assert len(cached) == 1
+    # The pack block should either be the cached block or come before it —
+    # static content always sits in the cacheable portion.
+    cached_text = cached[0]["text"]
+    pack_idx = next(
+        i for i, b in enumerate(result.content)
+        if isinstance(b, dict) and "cached-pack" in b.get("text", "")
+    )
+    cached_idx = next(
+        i for i, b in enumerate(result.content)
+        if isinstance(b, dict) and b is cached[0]
+    )
+    assert pack_idx <= cached_idx

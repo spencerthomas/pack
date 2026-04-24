@@ -478,6 +478,27 @@ Your current working directory is:
 _DEFAULT_AGENT_TIMEOUT_SEC = 1200
 
 
+def _find_context_packs_dir() -> str | None:
+    """Locate the ``.context-packs/`` directory to use for pack resolution.
+
+    Walks up from the evals package toward the repo root; Pack's own
+    dogfood packs live at the monorepo root, not inside ``libs/evals``.
+    Returns ``None`` when no packs directory exists — the resolver
+    treats None as "no packs, use no pack."
+    """
+    from pathlib import Path as _Path
+
+    start = _Path(__file__).resolve()
+    for ancestor in start.parents:
+        candidate = ancestor / ".context-packs"
+        if candidate.is_dir():
+            return str(candidate)
+        # Stop once we hit a filesystem root
+        if ancestor == ancestor.parent:
+            break
+    return None
+
+
 def _resolve_agent_timeout(configuration: dict[str, Any]) -> int:
     """Pick a reasonable agent-timeout value for BudgetObservable.
 
@@ -699,7 +720,7 @@ class DeepAgentsWrapper(BaseAgent):
 
             # Classify the task so the prompt builder can surface domain/phase
             # guidance without bloating the static portion for unrelated tasks.
-            from deepagents.prompt import classify
+            from deepagents.prompt import classify, resolve_pack
             from deepagents_cli.policy import policy_for
 
             task_hints = classify(instruction).as_dict()
@@ -710,6 +731,15 @@ class DeepAgentsWrapper(BaseAgent):
             # gives broad write access anyway; for real user repos the
             # policy caps blast radius.
             task_policy = policy_for(task_hints)
+            # Phase B.2: pick the context pack for this task. Packs live
+            # at `<repo-root>/.context-packs/` so Pack itself dogfoods
+            # them, and user repos expose the same convention. The
+            # resolver falls back to `coding-task` when no specialized
+            # pack matches. None here means no packs directory at all.
+            _packs_dir = _find_context_packs_dir()
+            context_pack = (
+                resolve_pack(task_hints, _packs_dir) if _packs_dir else None
+            )
             # Ratchet persistence to live .harness/ per trial is deferred
             # — needs a decision about per-trial vs repo-level scope
             # tracking. Phase A.3 shipped the substrate and integration
@@ -753,6 +783,7 @@ class DeepAgentsWrapper(BaseAgent):
                 prompt_env_override=prompt_env_override,
                 budget_total_sec=budget_total_sec,
                 task_policy=task_policy,
+                context_pack=context_pack,
             )
         else:
             # Use SDK agent

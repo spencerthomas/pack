@@ -15,6 +15,7 @@ from deepagents.prompt.cache_strategy import (
 )
 from deepagents.prompt.sections import (
     PromptSection,
+    context_pack_section,
     environment_section,
     git_section,
     identity_section,
@@ -23,21 +24,32 @@ from deepagents.prompt.sections import (
     task_hints_section,
     tool_rules_section,
 )
+from deepagents.prompt.context_pack import (
+    ContextPack,
+    list_packs,
+    load_pack,
+    resolve_pack,
+)
 from deepagents.prompt.task_classifier import TaskHints, classify
 
 __all__ = [
     "AnthropicCacheStrategy",
     "CacheStrategy",
+    "ContextPack",
     "DefaultCacheStrategy",
     "OpenAICacheStrategy",
     "PromptSection",
     "SystemPromptBuilder",
     "TaskHints",
     "classify",
+    "context_pack_section",
     "detect_strategy",
     "environment_section",
     "git_section",
     "identity_section",
+    "list_packs",
+    "load_pack",
+    "resolve_pack",
     "safety_section",
     "style_section",
     "task_hints_section",

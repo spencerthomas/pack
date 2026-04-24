@@ -13,8 +13,10 @@ from deepagents.prompt.cache_strategy import (
     DefaultCacheStrategy,
     detect_strategy,
 )
+from deepagents.prompt.context_pack import ContextPack
 from deepagents.prompt.sections import (
     PromptSection,
+    context_pack_section,
     environment_section,
     git_section,
     identity_section,
@@ -84,6 +86,26 @@ class SystemPromptBuilder:
         self._extra_dynamic.append(
             PromptSection(content=content, cacheable=False),
         )
+
+    def add_context_pack(self, pack: ContextPack) -> None:
+        """Append a loaded context pack as a cacheable static section.
+
+        Packs provide task-scoped guidance (domain rules, phase-specific
+        anti-patterns, golden examples) that rarely changes between
+        runs. Rendered with a header naming the pack so the agent can
+        tell which guidance is in force.
+
+        Empty packs (no summary and no rules) are silently skipped so
+        stub pack directories don't inject empty sections.
+
+        Args:
+            pack: A ``ContextPack`` loaded via ``resolve_pack`` or
+                ``load_pack``.
+        """
+        section = context_pack_section(pack.name, pack.summary, pack.rules)
+        if not section.content:
+            return
+        self._extra_static.append(section)
 
     def build(
         self,

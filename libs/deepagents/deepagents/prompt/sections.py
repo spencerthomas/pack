@@ -150,6 +150,35 @@ def git_section(branch: str, status: str) -> PromptSection:
     return PromptSection(content=content, cacheable=False)
 
 
+def context_pack_section(pack_name: str, summary: str, rules: str) -> PromptSection:
+    """Build a cacheable section from a loaded context pack's content.
+
+    Packs are stable per-repo guidance; the summary and rules rarely
+    change between runs, so they belong in the static (cached) portion
+    of the prompt. Wraps the content with a short header naming the
+    pack so the agent can see which rule set is in force.
+
+    Args:
+        pack_name: The pack's identifier (directory name).
+        summary: Content of ``README.md``. May be empty.
+        rules: Content of ``rules.md``. May be empty.
+
+    Returns:
+        A cacheable section. If both summary and rules are empty the
+        section content is empty too; callers filter those out before
+        rendering.
+    """
+    pieces: list[str] = [f"## Context pack: {pack_name}"]
+    if summary.strip():
+        pieces.append(summary.strip())
+    if rules.strip():
+        pieces.append("### Rules\n\n" + rules.strip())
+    # If we only have the header and no content, collapse to empty.
+    if len(pieces) == 1:
+        return PromptSection(content="", cacheable=True)
+    return PromptSection(content="\n\n".join(pieces), cacheable=True)
+
+
 def task_hints_section(hints: dict[str, str]) -> PromptSection:
     """Build a dynamic section of task-specific guidance.
 
