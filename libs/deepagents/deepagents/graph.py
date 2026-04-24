@@ -289,6 +289,7 @@ def _build_pack_system_prompt(
     model: str | BaseChatModel | None,
     system_prompt: str | SystemMessage | None,
     task_hints: dict[str, str] | None,
+    prompt_env_override: dict[str, str | None] | None = None,
 ) -> str | SystemMessage:
     """Assemble Pack's system prompt using `SystemPromptBuilder`.
 
@@ -296,6 +297,12 @@ def _build_pack_system_prompt(
     target model supports prompt caching (Anthropic) and a plain text
     string otherwise, so downstream providers that reject content blocks
     (e.g., OpenRouter against some open-source models) keep working.
+
+    Args:
+        prompt_env_override: When provided (even as empty dict), disables
+            auto-collection of cwd/os/branch/git_status and uses the given
+            values instead. Harbor passes ``{}`` here so the controller
+            process state doesn't leak into the container agent's prompt.
     """
     from deepagents.prompt.builder import SystemPromptBuilder
 
@@ -322,7 +329,13 @@ def _build_pack_system_prompt(
         if isinstance(user_text, str) and user_text.strip():
             builder.add_static_section(user_text)
 
-    cwd, os_info, branch, git_status = _collect_prompt_context()
+    if prompt_env_override is None:
+        cwd, os_info, branch, git_status = _collect_prompt_context()
+    else:
+        cwd = prompt_env_override.get("cwd")
+        os_info = prompt_env_override.get("os_info")
+        branch = prompt_env_override.get("branch")
+        git_status = prompt_env_override.get("git_status")
 
     # Anthropic is the only provider that benefits from content-block
     # output with cache_control markers. Others get the plain-text build
@@ -368,6 +381,7 @@ def create_deep_agent(  # noqa: C901, PLR0912, PLR0915  # Complex graph assembly
     name: str | None = None,
     cache: BaseCache | None = None,
     task_hints: dict[str, str] | None = None,
+    prompt_env_override: dict[str, str | None] | None = None,
 ) -> CompiledStateGraph[AgentState[ResponseT], ContextT, _InputAgentState, _OutputAgentState[ResponseT]]:  # ty: ignore[invalid-type-arguments]  # ty can't verify generic TypedDicts satisfy StateLike bound
     """Create a Deep Agent.
 
@@ -749,6 +763,7 @@ def create_deep_agent(  # noqa: C901, PLR0912, PLR0915  # Complex graph assembly
             model=model,
             system_prompt=system_prompt,
             task_hints=task_hints,
+            prompt_env_override=prompt_env_override,
         )
     else:
         base_prompt = _profile.base_system_prompt if _profile.base_system_prompt is not None else BASE_AGENT_PROMPT

@@ -1558,6 +1558,19 @@ BENCHMARK_SHELL_COMMANDS = RECOMMENDED_SAFE_SHELL_COMMANDS + (
     "awk",
     "sed",
     "xargs",
+    # Enhanced search/format tools (common pipe patterns)
+    "rg",          # ripgrep — faster `grep` agents often reach for
+    "fd",          # fd-find — modern `find` replacement
+    "jq",          # JSON pipe processing
+    "yq",          # YAML/TOML pipe processing
+    "column",      # table formatting
+    "fold",        # line wrapping
+    "bc",          # precision arithmetic
+    "basename",    # path split
+    "dirname",     # path split
+    "realpath",    # canonicalize paths
+    "readlink",    # symlink resolution
+    "stat",        # file metadata
     # Shell builtins and utilities
     "echo",
     "printf",

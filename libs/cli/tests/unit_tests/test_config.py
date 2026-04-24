@@ -927,6 +927,33 @@ class TestParseShellAllowList:
         expected = [*list(RECOMMENDED_SAFE_SHELL_COMMANDS), "mycmd", "myothercmd"]
         assert result == expected
 
+    def test_benchmark_includes_common_pipe_tools(self) -> None:
+        """Benchmark preset must include rg/jq/fd/bc and path helpers.
+
+        Agents routinely pipe through these; missing them forces clumsy
+        workarounds that burn tool calls on read-heavy tasks.
+        """
+        from deepagents_cli.config import BENCHMARK_SHELL_COMMANDS
+
+        required = {"rg", "jq", "fd", "yq", "column", "fold", "bc",
+                    "basename", "dirname", "realpath", "readlink", "stat"}
+        missing = required - set(BENCHMARK_SHELL_COMMANDS)
+        assert not missing, f"benchmark allow-list missing: {missing}"
+
+    def test_benchmark_excludes_dangerous_shells(self) -> None:
+        """Benchmark preset must NOT include interactive shells.
+
+        Defense-in-depth: even with DANGEROUS_SHELL_PATTERNS rejecting
+        redirects/substitution, an allowed `bash`/`sh`/`ssh` binary is a
+        too-easy escape hatch for code injection.
+        """
+        from deepagents_cli.config import BENCHMARK_SHELL_COMMANDS
+
+        forbidden = {"bash", "sh", "zsh", "fish", "ssh", "nc", "netcat",
+                     "eval", "exec", "source"}
+        overlap = set(BENCHMARK_SHELL_COMMANDS) & forbidden
+        assert not overlap, f"benchmark allow-list must not include: {overlap}"
+
     def test_custom_commands_before_recommended(self) -> None:
         """Test custom commands before 'recommended' keyword."""
         result = parse_shell_allow_list("mycmd,recommended,myothercmd")

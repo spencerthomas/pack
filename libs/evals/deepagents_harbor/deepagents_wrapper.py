@@ -472,6 +472,41 @@ Your current working directory is:
 """
 
 
+# Conservative default when no task-specific timeout is discoverable. TB2
+# tasks commonly advertise 600s (10 min) or 1800s (30 min); this sits
+# between them so the budget signal isn't wildly wrong in either direction.
+_DEFAULT_AGENT_TIMEOUT_SEC = 1200
+
+
+def _resolve_agent_timeout(configuration: dict[str, Any]) -> int:
+    """Pick a reasonable agent-timeout value for BudgetObservable.
+
+    Harbor computes the true timeout at runtime from the task's ``task.toml``
+    combined with trial-level multipliers; those resolved values aren't in
+    the trial config JSON we read here. We approximate by honouring any
+    explicit overrides the caller set, applying the multiplier to our
+    conservative default otherwise.
+
+    Returns an int (seconds), always >= 60 so the middleware's validation
+    doesn't reject the result.
+    """
+    agent_cfg = configuration.get("agent") or {}
+    override = agent_cfg.get("override_timeout_sec")
+    if isinstance(override, (int, float)) and override > 0:
+        return max(60, int(override))
+
+    multiplier = (
+        configuration.get("agent_timeout_multiplier")
+        or configuration.get("timeout_multiplier")
+        or 1.0
+    )
+    try:
+        resolved = int(_DEFAULT_AGENT_TIMEOUT_SEC * float(multiplier))
+    except (TypeError, ValueError):
+        resolved = _DEFAULT_AGENT_TIMEOUT_SEC
+    return max(60, resolved)
+
+
 class DeepAgentsWrapper(BaseAgent):
     """Harbor agent implementation using LangChain Deep Agents.
 
@@ -668,6 +703,28 @@ class DeepAgentsWrapper(BaseAgent):
 
             task_hints = classify(instruction).as_dict()
 
+            # Explicit env override: the controller process (where we are)
+            # lives on the host filesystem, but the agent runs inside a
+            # Harbor sandbox container. Passing controller cwd/git into the
+            # agent's prompt would be actively wrong, so we blank those
+            # dynamic sections. cwd is set to the sandbox's canonical
+            # workdir ("/app" for TB2 containers) so the agent has an
+            # accurate anchor.
+            prompt_env_override = {
+                "cwd": "/app",
+                "os_info": None,
+                "branch": None,
+                "git_status": None,
+            }
+
+            # Resolve the actual per-task agent timeout so the budget
+            # middleware gives the model accurate remaining-time signals.
+            # Order of precedence: explicit override → multiplier applied
+            # to a conservative default (Harbor computes the real value
+            # from task.toml at runtime, but we don't have direct access
+            # to that here, so we approximate).
+            budget_total_sec = _resolve_agent_timeout(configuration)
+
             deep_agent, _ = create_cli_agent(
                 model=self._model,
                 assistant_id=environment.session_id,
@@ -680,6 +737,8 @@ class DeepAgentsWrapper(BaseAgent):
                 enable_skills=True,  # Activate Pack's skills system
                 enable_shell=False,  # Sandbox provides execution
                 task_hints=task_hints,
+                prompt_env_override=prompt_env_override,
+                budget_total_sec=budget_total_sec,
             )
         else:
             # Use SDK agent

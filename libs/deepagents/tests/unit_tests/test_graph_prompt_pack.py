@@ -169,3 +169,54 @@ def test_pack_enabled_flag_is_decoupled_from_helper() -> None:
             task_hints=None,
         )
         assert isinstance(result, SystemMessage)
+
+
+# ---------------------------------------------------------------------------
+# prompt_env_override — Harbor passes container env, not controller's
+# ---------------------------------------------------------------------------
+
+
+def test_empty_override_dict_skips_auto_collection() -> None:
+    # Passing an empty dict explicitly disables auto-collection — no
+    # environment or git section renders, even though the calling process
+    # has a real cwd and git repo.
+    result = _build_pack_system_prompt(
+        model="openrouter:z-ai/glm-5.1",
+        system_prompt="PREAMBLE",
+        task_hints=None,
+        prompt_env_override={},
+    )
+    assert isinstance(result, str)
+    assert "## Environment" not in result
+    assert "## Git Context" not in result
+
+
+def test_override_cwd_is_used_instead_of_controller_cwd() -> None:
+    # Harbor passes "/app" for the container workdir; the controller's
+    # cwd must never leak through.
+    result = _build_pack_system_prompt(
+        model="openrouter:z-ai/glm-5.1",
+        system_prompt="PREAMBLE",
+        task_hints=None,
+        prompt_env_override={"cwd": "/app", "os_info": "Linux container"},
+    )
+    assert isinstance(result, str)
+    assert "/app" in result
+    assert "Linux container" in result
+    # No controller-side paths
+    assert "/Users/" not in result
+    assert "/home/" not in result
+
+
+def test_override_none_triggers_auto_collection() -> None:
+    # None (default) preserves backwards-compat auto-collection — needed
+    # for interactive CLI use outside Harbor.
+    result = _build_pack_system_prompt(
+        model="openrouter:z-ai/glm-5.1",
+        system_prompt="PREAMBLE",
+        task_hints=None,
+        prompt_env_override=None,
+    )
+    assert isinstance(result, str)
+    # cwd is auto-collected — at least an Environment section should render
+    assert "## Environment" in result

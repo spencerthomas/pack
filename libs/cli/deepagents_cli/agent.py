@@ -51,6 +51,9 @@ from deepagents_cli.config import (
 from deepagents_cli.configurable_model import ConfigurableModelMiddleware
 from deepagents_cli.integrations.sandbox_factory import get_default_working_dir
 from deepagents_cli.budget_observable import BudgetObservableMiddleware
+from deepagents_cli.output_ceiling import OutputCeilingMiddleware
+from deepagents_cli.progressive_disclosure import ProgressiveDisclosureMiddleware
+from deepagents_cli.tool_result_enrichment import ToolResultEnrichmentMiddleware
 from deepagents_cli.loop_detection import LoopDetectionMiddleware
 from deepagents_cli.local_context import (
     LocalContextMiddleware,
@@ -1455,6 +1458,8 @@ def create_cli_agent(
     project_context: ProjectContext | None = None,
     async_subagents: list[AsyncSubAgent] | None = None,
     task_hints: dict[str, str] | None = None,
+    prompt_env_override: dict[str, str | None] | None = None,
+    budget_total_sec: int | None = None,
 ) -> tuple[Pregel, CompositeBackend]:
     """Create a CLI-configured agent with flexible options.
 
@@ -1759,10 +1764,33 @@ def create_cli_agent(
         # before the agent can declare done. Targets the "wrong_solution"
         # failure mode where agents submit without running tests.
         agent_middleware.append(PreCompletionChecklistMiddleware())
+        # Output ceiling: nudge the agent to commit to a solution when
+        # cumulative completion tokens spike. Targets the "single-shot
+        # dump" failure mode (30-60K tokens of analysis in 2-4 steps
+        # without ever writing code).
+        agent_middleware.append(OutputCeilingMiddleware())
+        # Progressive tool disclosure: drop distractor tools from the
+        # model's schema for classified coding tasks. No-ops when
+        # task_hints is empty so non-benchmark sessions keep the full
+        # surface.
+        agent_middleware.append(
+            ProgressiveDisclosureMiddleware(task_hints=task_hints),
+        )
+        # Tool result enrichment: append derived-signal markers (line
+        # counts, exit codes, match counts) to tool outputs so the
+        # agent can pattern-match instead of re-deriving state on
+        # every return.
+        agent_middleware.append(ToolResultEnrichmentMiddleware())
         # Budget observability: append remaining time to every tool result
         # so the agent can reason about its runway. Converts silent timeouts
-        # into informed best-so-far submissions.
-        agent_middleware.append(BudgetObservableMiddleware())
+        # into informed best-so-far submissions. Callers (e.g. Harbor) that
+        # know the real per-task agent_timeout should pass it via
+        # ``budget_total_sec``; otherwise the middleware's conservative
+        # default applies.
+        budget_kwargs = (
+            {"total_budget_sec": budget_total_sec} if budget_total_sec else {}
+        )
+        agent_middleware.append(BudgetObservableMiddleware(**budget_kwargs))
 
     # Get or use custom system prompt
     if system_prompt is None:
@@ -1878,5 +1906,6 @@ def create_cli_agent(
         checkpointer=checkpointer,
         subagents=all_subagents or None,
         task_hints=task_hints,
+        prompt_env_override=prompt_env_override,
     ).with_config(config)
     return agent, composite_backend
