@@ -7,6 +7,18 @@
 # catch regressions.
 
 invariants:
+  - id: components_doc_status_current
+    description: >
+      docs/harness/components.md must not reference an outdated commit
+      header or contradict the current roadmap by saying a shipped PR
+      is still pending. Stale status docs are dangerous because agents
+      use them to decide what work has happened.
+    severity: warn
+    matcher: absent_regex
+    pattern: 'Diff-aware reviewer upgrade.*pending'
+    paths:
+      - docs/harness/components.md
+
   - id: no_leftover_ics_uploads
     description: >
       Stray .ics files from agent test runs (e.g. alice_calendar.ics,

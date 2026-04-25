@@ -55,6 +55,10 @@ logger = logging.getLogger(__name__)
 # Strict direction — if evals wants something in cli, fine; if cli wants
 # something in evals, that's the violation we block. Keep this table
 # minimal — new packages only get entries when they really land.
+#
+# This is the **fallback** graph used when no .harness/config.yaml is
+# loaded. External repos ship their own dependency_rules through the
+# config and override this default via ``edges_from_config``.
 PACKAGE_EDGES: dict[str, frozenset[str]] = {
     "deepagents_evals": frozenset({"deepagents_harbor", "deepagents_cli", "deepagents"}),
     "deepagents_harbor": frozenset({"deepagents_cli", "deepagents"}),
@@ -72,6 +76,100 @@ in the set (and not itself) is an arch violation.
 # packages (langchain, pytest, numpy…) are out of scope for this
 # linter — that's the package-management layer's job.
 _FIRST_PARTY = frozenset(PACKAGE_EDGES)
+
+
+def edges_from_config(config: object) -> dict[str, frozenset[str]] | None:
+    """Compile a ``HarnessConfig`` into a PACKAGE_EDGES-shaped graph.
+
+    Reads ``config.packages`` and ``config.dependency_rules``,
+    matches each rule's ``from`` and ``may_import`` / ``may_not_import``
+    glob fragments against the declared package paths, and produces
+    the per-package edge set the rest of arch-lint already understands.
+
+    Resolution rules:
+
+    1. A rule's ``from`` glob picks an importer package — the unique
+       declared package whose ``path`` is contained in the glob's
+       prefix. Ambiguous matches log a warning and the rule is
+       skipped (don't silently apply to multiple packages).
+    2. ``may_import`` adds the matched targets to the importer's
+       allow set.
+    3. ``may_not_import`` is informational here — arch-lint's model
+       is allow-list based, so a forbidden glob narrows the allow
+       set to ``everyone EXCEPT this``. We compute that explicitly
+       below.
+    4. Packages not mentioned in any rule fall back to "may import
+       everything declared." This is permissive on purpose: the
+       config author explicitly opts into restriction by writing
+       a rule.
+
+    Returns ``None`` when ``config`` is ``None`` or has no
+    ``dependency_rules`` — caller falls back to the hardcoded
+    PACKAGE_EDGES.
+    """
+    if config is None:
+        return None
+    packages = getattr(config, "packages", ())
+    rules = getattr(config, "dependency_rules", ())
+    if not packages or not rules:
+        return None
+
+    # Map package name → its declared path so we can match globs.
+    pkg_paths: dict[str, str] = {
+        p.name: p.path.replace("\\", "/").rstrip("/")
+        for p in packages
+        if hasattr(p, "name") and hasattr(p, "path")
+    }
+    pkg_names = list(pkg_paths)
+
+    if not pkg_paths:
+        return None
+
+    # Default: every package may import every other package. Each
+    # rule narrows from there.
+    edges: dict[str, set[str]] = {
+        name: set(other for other in pkg_names if other != name)
+        for name in pkg_names
+    }
+
+    def _match_glob_to_packages(glob: str) -> list[str]:
+        """Find every declared package whose path falls under ``glob``."""
+        prefix = glob.replace("**", "").rstrip("/*")
+        matches = [
+            name
+            for name, path in pkg_paths.items()
+            if path.startswith(prefix) or prefix in path
+        ]
+        return matches
+
+    for rule in rules:
+        sources = _match_glob_to_packages(getattr(rule, "from_pattern", ""))
+        if not sources:
+            continue
+        if len(sources) > 1:
+            logger.warning(
+                "Arch-lint config: rule from=%r matched multiple packages "
+                "(%s); skipping. Tighten the glob to disambiguate.",
+                rule.from_pattern,
+                sources,
+            )
+            continue
+        importer = sources[0]
+
+        may_targets: set[str] = set()
+        for glob in getattr(rule, "may_import", ()):
+            may_targets.update(_match_glob_to_packages(glob))
+        not_targets: set[str] = set()
+        for glob in getattr(rule, "may_not_import", ()):
+            not_targets.update(_match_glob_to_packages(glob))
+
+        if may_targets:
+            # Explicit allow-list: replace the permissive default.
+            edges[importer] = {t for t in may_targets if t != importer}
+        if not_targets:
+            edges[importer] -= not_targets
+
+    return {name: frozenset(targets) for name, targets in edges.items()}
 
 
 # --- Types --------------------------------------------------------------
@@ -210,23 +308,39 @@ def _top_level_package(module: str) -> str | None:
     return head if head in _FIRST_PARTY else None
 
 
-def check_import(importer: str, module: str, *, line: str = "", line_number: int = 0) -> ArchViolation | None:
+def check_import(
+    importer: str,
+    module: str,
+    *,
+    line: str = "",
+    line_number: int = 0,
+    edges: dict[str, frozenset[str]] | None = None,
+) -> ArchViolation | None:
     """Check one import. Return a violation or None if allowed.
 
     The ``importer`` is the package the source file belongs to; the
     ``module`` is whatever the ``import`` statement names. External
-    imports (not in ``_FIRST_PARTY``) are always allowed — this
+    imports (not in the active edge map) are always allowed — this
     linter only enforces first-party direction.
+
+    Args:
+        edges: Override the hardcoded ``PACKAGE_EDGES`` graph. When
+            ``None`` (default) the hardcoded graph applies. Repos
+            with their own ``.harness/config.yaml`` derive an edge
+            map via :func:`edges_from_config` and pass it here.
     """
-    if importer not in PACKAGE_EDGES:
+    active_edges = edges if edges is not None else PACKAGE_EDGES
+    if importer not in active_edges:
         # Unknown importer package: no rules to enforce.
         return None
 
-    imported = _top_level_package(module)
+    first_party = frozenset(active_edges)
+    head = module.split(".", 1)[0]
+    imported = head if head in first_party else None
     if imported is None or imported == importer:
         return None  # external or self-import — fine
 
-    allowed = PACKAGE_EDGES[importer]
+    allowed = active_edges[importer]
     if imported in allowed:
         return None
 
@@ -238,7 +352,12 @@ def check_import(importer: str, module: str, *, line: str = "", line_number: int
     )
 
 
-def check_file(path: str, source: str) -> list[ArchViolation]:
+def check_file(
+    path: str,
+    source: str,
+    *,
+    edges: dict[str, frozenset[str]] | None = None,
+) -> list[ArchViolation]:
     """Check every import in ``source`` against its path-derived package.
 
     Returns the list of violations. Empty list means clean.
@@ -248,7 +367,13 @@ def check_file(path: str, source: str) -> list[ArchViolation]:
         return []  # test/script or external path — not enforced
     violations: list[ArchViolation] = []
     for module, line_no, raw in extract_imports(source):
-        violation = check_import(importer, module, line=raw, line_number=line_no)
+        violation = check_import(
+            importer,
+            module,
+            line=raw,
+            line_number=line_no,
+            edges=edges,
+        )
         if violation is not None:
             violations.append(violation)
     return violations
@@ -284,10 +409,19 @@ class ArchLintMiddleware(AgentMiddleware):
         existing_violations: set[tuple[str, str]] | None = None,
         violation_recorder: Callable[[str, ArchViolation], None] | None = None,
         disabled: bool = False,
+        edges: dict[str, frozenset[str]] | None = None,
+        repo_root: str | None = None,
     ) -> None:
         self.existing_violations = existing_violations or set()
         self.violation_recorder = violation_recorder
         self.disabled = disabled
+        # When a config-derived edge map is supplied, use it; otherwise
+        # the hardcoded PACKAGE_EDGES governs.
+        self.edges = edges
+        # Repo root is needed to compose post-edit content for
+        # edit_file calls (sharp edge 4). When None, edit_file falls
+        # back to the previous "scan new_string only" behaviour.
+        self.repo_root = repo_root
 
     def _check(self, request: ToolCallRequest) -> ToolMessage | None:
         if self.disabled:
@@ -301,19 +435,11 @@ class ArchLintMiddleware(AgentMiddleware):
         if not isinstance(path, str):
             return None
 
-        # For edit_file the proposed state is the composition of
-        # (existing content - old_string + new_string); we can't
-        # compute that without reading the file. Conservative default:
-        # only scan ``new_string`` + the full file content field
-        # (write_file) for the import shape. Agents who rename imports
-        # via edit_file rarely introduce arch violations in the
-        # replacement string alone, so this is the pragmatic
-        # trade-off.
-        source = args.get("content") or args.get("new_string") or ""
-        if not isinstance(source, str) or not source.strip():
+        source = self._compose_proposed_source(tool_name, path, args)
+        if not source:
             return None
 
-        violations = check_file(path, source)
+        violations = check_file(path, source, edges=self.edges)
         if not violations:
             return None
 
@@ -328,7 +454,60 @@ class ArchLintMiddleware(AgentMiddleware):
             for violation in fresh:
                 self.violation_recorder(path, violation)
 
-        return _reject(tool_call=request.tool_call, path=path, violations=fresh)
+        return _reject(
+            tool_call=request.tool_call,
+            path=path,
+            violations=fresh,
+            edges=self.edges,
+        )
+
+    def _compose_proposed_source(
+        self,
+        tool_name: str,
+        path: str,
+        args: dict[str, Any],
+    ) -> str:
+        """Return the content arch-lint should scan for this tool call.
+
+        For ``write_file`` the answer is just ``args["content"]``.
+        For ``edit_file`` we ideally want the **composed** post-edit
+        text — old_string replaced with new_string in the existing
+        file — so violations that only manifest in full context get
+        caught. When ``repo_root`` is set we read and compose; when
+        it isn't, we fall back to scanning ``new_string`` alone (the
+        previous behaviour, which the review correctly flagged as a
+        blind spot).
+        """
+        if tool_name == "write_file":
+            content = args.get("content")
+            return content if isinstance(content, str) else ""
+
+        # edit_file
+        new_string = args.get("new_string")
+        old_string = args.get("old_string")
+        if not isinstance(new_string, str):
+            return ""
+
+        if self.repo_root and isinstance(old_string, str):
+            try:
+                # Resolve path against repo_root if it's not absolute.
+                from pathlib import Path
+
+                resolved = (
+                    Path(path) if Path(path).is_absolute()
+                    else Path(self.repo_root) / path.lstrip("/")
+                )
+                if resolved.is_file():
+                    current = resolved.read_text(encoding="utf-8", errors="replace")
+                    if old_string and old_string in current:
+                        return current.replace(old_string, new_string)
+                    # old_string didn't match — scanning new_string
+                    # alone is the safer fallback.
+                    return new_string
+            except OSError:
+                pass
+
+        return new_string
 
     def wrap_tool_call(
         self,
@@ -362,19 +541,26 @@ def _reject(
     tool_call: dict[str, Any],
     path: str,
     violations: list[ArchViolation],
+    edges: dict[str, frozenset[str]] | None = None,
 ) -> ToolMessage:
-    """Build a teach-at-failure rejection that explains the arch rule."""
+    """Build a teach-at-failure rejection that explains the arch rule.
+
+    Surfaces whichever edge map is active so the agent's suggested
+    fix matches the rules actually being enforced. Falls back to
+    PACKAGE_EDGES when no override is supplied.
+    """
+    active = edges if edges is not None else PACKAGE_EDGES
     bullet_lines = "\n".join(f"- {v.summary()}" for v in violations)
     allowed_map = "\n".join(
         f"  - `{src}` may import from: "
         f"{', '.join(sorted(targets)) if targets else '(nothing)'}"
-        for src, targets in sorted(PACKAGE_EDGES.items())
+        for src, targets in sorted(active.items())
     )
     content = (
         f"⛔️ Arch-lint violation in `{path}`:\n\n"
         f"{bullet_lines}\n\n"
-        "Pack's package direction is fixed — later layers depend on "
-        "earlier ones, never the reverse:\n\n"
+        "Package direction is fixed — later layers depend on earlier "
+        "ones, never the reverse:\n\n"
         f"{allowed_map}\n\n"
         "Either move the importing code into the correct layer, or "
         "invert the dependency (define the API in the lower layer and "

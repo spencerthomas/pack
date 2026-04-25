@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
 
@@ -383,3 +384,169 @@ def test_evidence_diff_truncates_at_max_files() -> None:
     assert "f0.py" in summary
     assert "f4.py" in summary
     assert "25 more file(s) not listed" in summary
+
+
+# ---------------------------------------------------------------------------
+# Sharp-edge 6: arch-lint + business-rule evidence
+# ---------------------------------------------------------------------------
+
+
+def test_evidence_includes_arch_lint_when_repo_root_set(tmp_path: Path) -> None:
+    """When the middleware has a repo_root, arch-lint runs over each
+    touched file and the result is surfaced as evidence."""
+    # Build a fake repo where the agent will "have written" a violating file
+    repo = tmp_path / "repo"
+    target = repo / "libs" / "deepagents" / "deepagents" / "bad.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("from deepagents_cli.policy import TaskPolicy\n")
+
+    reviewer = _stub_reviewer(ReviewVerdict(status="approve", summary="ok"))
+    m = ReviewerMiddleware(
+        reviewer=reviewer,
+        policy=TaskPolicy(task_type="feature", require_reviewer=True),
+        repo_root=str(repo),
+    )
+    msgs = [
+        HumanMessage(content="task"),
+        _ai_with_tool_calls(
+            "wrote it",
+            [
+                {
+                    "name": "write_file",
+                    "args": {
+                        "path": "libs/deepagents/deepagents/bad.py",
+                        "content": "x",
+                    },
+                    "id": "1",
+                }
+            ],
+        ),
+        _ai("done"),
+    ]
+    evidence = m._assemble_evidence(msgs)
+    assert "diff_summary" in evidence
+    assert "arch_lint_output" in evidence
+    assert "deepagents_cli" in evidence["arch_lint_output"]
+
+
+def test_evidence_arch_lint_clean_files_render_as_clean(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    target = repo / "libs" / "cli" / "deepagents_cli" / "ok.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("from deepagents.graph import x\n")
+
+    reviewer = _stub_reviewer(ReviewVerdict(status="approve", summary="ok"))
+    m = ReviewerMiddleware(
+        reviewer=reviewer,
+        policy=TaskPolicy(task_type="feature", require_reviewer=True),
+        repo_root=str(repo),
+    )
+    msgs = [
+        HumanMessage(content="t"),
+        _ai_with_tool_calls(
+            "wrote",
+            [{"name": "write_file", "args": {"path": "libs/cli/deepagents_cli/ok.py"}, "id": "1"}],
+        ),
+        _ai("done"),
+    ]
+    arch = m._assemble_evidence(msgs).get("arch_lint_output", "")
+    assert "clean" in arch
+
+
+def test_evidence_skips_arch_lint_without_repo_root() -> None:
+    """No repo_root → no arch-lint evidence (file IO not safe)."""
+    reviewer = _stub_reviewer(ReviewVerdict(status="approve", summary="ok"))
+    m = ReviewerMiddleware(
+        reviewer=reviewer,
+        policy=TaskPolicy(task_type="feature", require_reviewer=True),
+        # repo_root left unset
+    )
+    msgs = [
+        HumanMessage(content="task"),
+        _ai_with_tool_calls(
+            "wrote",
+            [{"name": "write_file", "args": {"path": "libs/x/y.py", "content": "x"}, "id": "1"}],
+        ),
+        _ai("done"),
+    ]
+    evidence = m._assemble_evidence(msgs)
+    assert "arch_lint_output" not in evidence
+    # diff_summary is unaffected
+    assert "diff_summary" in evidence
+
+
+def test_evidence_business_rules_when_pack_present(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    pack = repo / ".context-packs" / "p"
+    pack.mkdir(parents=True)
+    (pack / "checks.yaml").write_text(
+        """\
+invariants:
+  - id: no_todos
+    description: no TODO left behind
+    severity: warn
+    matcher: absent_regex
+    pattern: 'TODO'
+    paths:
+      - '*.py'
+"""
+    )
+    (repo / "a.py").write_text("# TODO: cleanup\n")
+
+    reviewer = _stub_reviewer(ReviewVerdict(status="approve", summary="ok"))
+    m = ReviewerMiddleware(
+        reviewer=reviewer,
+        policy=TaskPolicy(task_type="feature", require_reviewer=True),
+        repo_root=str(repo),
+    )
+    msgs = [HumanMessage(content="t"), _ai("done")]
+    evidence = m._assemble_evidence(msgs)
+    # No writes from the agent → no diff_summary, but business-rule
+    # evidence still appears because invariants are repo-wide.
+    assert "business_rules_output" in evidence
+    assert "no_todos" in evidence["business_rules_output"]
+
+
+def test_reviewer_receives_full_evidence_set(tmp_path: Path) -> None:
+    """End-to-end: middleware should pass diff + arch + business-rule
+    evidence into the reviewer call when all three sources fire."""
+    repo = tmp_path / "repo"
+    target = repo / "libs" / "deepagents" / "deepagents" / "bad.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("from deepagents_cli.policy import TaskPolicy\n")
+    pack = repo / ".context-packs" / "p"
+    pack.mkdir(parents=True)
+    (pack / "checks.yaml").write_text(
+        """\
+invariants:
+  - id: shipped
+    description: marker file required
+    severity: warn
+    matcher: file_exists
+    target: README.md
+    paths:
+      - libs/deepagents/deepagents/bad.py
+"""
+    )
+
+    verdict = ReviewVerdict(status="approve", summary="ok")
+    reviewer = _stub_reviewer(verdict)
+    m = ReviewerMiddleware(
+        reviewer=reviewer,
+        policy=TaskPolicy(task_type="feature", require_reviewer=True),
+        repo_root=str(repo),
+    )
+    state = _state(
+        [
+            HumanMessage(content="task"),
+            _ai_with_tool_calls(
+                "wrote",
+                [{"name": "write_file", "args": {"path": "libs/deepagents/deepagents/bad.py"}, "id": "1"}],
+            ),
+            _ai("done"),
+        ]
+    )
+    m.after_model(state, Mock())
+    _args, kwargs = reviewer.review.call_args
+    evidence = kwargs["evidence"]
+    assert set(evidence.keys()) == {"diff_summary", "arch_lint_output", "business_rules_output"}

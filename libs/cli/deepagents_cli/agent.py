@@ -50,7 +50,7 @@ from deepagents_cli.config import (
 )
 from deepagents_cli.configurable_model import ConfigurableModelMiddleware
 from deepagents_cli.integrations.sandbox_factory import get_default_working_dir
-from deepagents_cli.arch_lint import ArchLintMiddleware, ArchViolation
+from deepagents_cli.arch_lint import ArchLintMiddleware, ArchViolation, edges_from_config
 from deepagents_cli.budget_observable import BudgetObservableMiddleware
 from deepagents_cli.output_ceiling import OutputCeilingMiddleware
 from deepagents_cli.policy import TaskPolicy
@@ -1836,14 +1836,30 @@ def create_cli_agent(
             ),
         )
 
-    # Arch lint (Phase D.1 + M2): enforce the package dependency
-    # direction. Ratchet mode tolerates existing violations seeded from
-    # .harness/violations.json so a brownfield repo doesn't brick on
-    # first run — only fresh violations block.
+    # Arch lint (Phase D.1 + M2 + sharp-edge 2): enforce the package
+    # dependency direction. Edge map is sourced from
+    # ``.harness/config.yaml`` when present (via
+    # ``edges_from_config``); falls back to the hardcoded
+    # ``PACKAGE_EDGES`` table otherwise.
+    _arch_edges = None
+    _arch_repo_root: str | None = None
+    try:
+        from deepagents_cli.harness_config import find_harness_dir, load_config
+
+        _harness_dir = find_harness_dir()
+        if _harness_dir is not None:
+            _harness_config = load_config(_harness_dir)
+            _arch_edges = edges_from_config(_harness_config)
+            _arch_repo_root = str(_harness_dir.parent)
+    except Exception:  # noqa: BLE001  # config load must never abort agent construction
+        logger.debug("Arch-lint config load failed; using defaults", exc_info=True)
+
     agent_middleware.append(
         ArchLintMiddleware(
             existing_violations=_existing_arch_violations,
             violation_recorder=_record_arch_violation if _ratchet else None,
+            edges=_arch_edges,
+            repo_root=_arch_repo_root,
         ),
     )
 
@@ -1864,11 +1880,14 @@ def create_cli_agent(
         # before the agent can declare done. Targets the "wrong_solution"
         # failure mode where agents submit without running tests.
         agent_middleware.append(PreCompletionChecklistMiddleware())
-        # Reviewer pass (Phase C): when the policy demands it, invoke a
-        # separate reviewer sub-agent before allowing termination. The
-        # reviewer critiques the main agent's work and either approves
-        # or injects specific fixes back into the loop. No-ops when
-        # policy.require_reviewer is False or no model is resolvable.
+        # Reviewer pass (Phase C + sharp-edge 6): when the policy
+        # demands it, invoke a separate reviewer sub-agent before
+        # allowing termination. The reviewer critiques the main
+        # agent's work and either approves or injects specific
+        # fixes back into the loop. With ``repo_root`` set the
+        # reviewer also receives arch-lint and business-rule output
+        # for the touched files. No-ops when policy.require_reviewer
+        # is False or no model is resolvable.
         if task_policy is not None and task_policy.require_reviewer:
             _reviewer_model = _resolve_reviewer_model(model)
             if _reviewer_model is not None:
@@ -1876,6 +1895,8 @@ def create_cli_agent(
                     ReviewerMiddleware(
                         reviewer=ReviewerSubAgent(model=_reviewer_model),
                         policy=task_policy,
+                        repo_root=_arch_repo_root,
+                        arch_edges=_arch_edges,
                     ),
                 )
         # Output ceiling: nudge the agent to commit to a solution when

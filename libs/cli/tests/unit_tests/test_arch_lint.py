@@ -410,3 +410,151 @@ async def test_async_wrap_enforces_arch() -> None:
     )
     result = await m.awrap_tool_call(req, handler)
     assert result.status == "error"
+
+
+# ---------------------------------------------------------------------------
+# Sharp-edge 2: edges_from_config
+# ---------------------------------------------------------------------------
+
+
+def test_edges_from_config_returns_none_for_none() -> None:
+    from deepagents_cli.arch_lint import edges_from_config
+
+    assert edges_from_config(None) is None
+
+
+def test_edges_from_config_compiles_dependency_rules() -> None:
+    from deepagents_cli.arch_lint import edges_from_config
+    from deepagents_cli.harness_config import (
+        DependencyRule,
+        HarnessConfig,
+        PackageSpec,
+    )
+
+    config = HarnessConfig(
+        packages=(
+            PackageSpec(name="alpha", path="libs/alpha"),
+            PackageSpec(name="beta", path="libs/beta"),
+            PackageSpec(name="gamma", path="libs/gamma"),
+        ),
+        dependency_rules=(
+            DependencyRule(
+                from_pattern="libs/alpha/**",
+                may_import=("libs/beta/**",),
+            ),
+            DependencyRule(
+                from_pattern="libs/beta/**",
+                may_not_import=("libs/alpha/**",),
+            ),
+        ),
+    )
+    edges = edges_from_config(config)
+    assert edges is not None
+    # alpha allows only beta (rule narrowed permissive default)
+    assert edges["alpha"] == frozenset({"beta"})
+    # beta default is everyone, minus alpha (forbidden)
+    assert "alpha" not in edges["beta"]
+    assert "gamma" in edges["beta"]
+
+
+def test_check_import_uses_override_edges() -> None:
+    from deepagents_cli.arch_lint import check_import
+
+    # Custom edge map: alpha may import beta only
+    edges: dict[str, frozenset[str]] = {
+        "alpha": frozenset({"beta"}),
+        "beta": frozenset(),
+    }
+    # alpha → beta is fine
+    assert check_import("alpha", "beta.thing", edges=edges) is None
+    # alpha → gamma is fine because gamma isn't in the first-party map
+    assert check_import("alpha", "gamma.thing", edges=edges) is None
+    # beta → alpha is a violation under this map
+    v = check_import("beta", "alpha.thing", edges=edges)
+    assert v is not None
+    assert v.imported == "alpha"
+
+
+def test_check_file_with_override_edges() -> None:
+    from deepagents_cli.arch_lint import check_file, package_for_path
+
+    # Re-purpose the existing path resolver: pretend deepagents path
+    # belongs to a different package called "alpha" by passing edges
+    # that map only the path-derived "deepagents" to allow nothing.
+    edges: dict[str, frozenset[str]] = {"deepagents": frozenset()}
+    # We have to use a real path that resolves to the "deepagents"
+    # package via package_for_path.
+    assert package_for_path("libs/deepagents/deepagents/foo.py") == "deepagents"
+    violations = check_file(
+        "libs/deepagents/deepagents/foo.py",
+        "import langchain\n",
+        edges=edges,
+    )
+    assert violations == []  # langchain is external — always allowed
+
+
+def test_middleware_uses_config_derived_edges() -> None:
+    from deepagents_cli.arch_lint import ArchLintMiddleware
+
+    # Pretend configurer wants deepagents to NOT depend on its CLI
+    # using a non-default edge map (matches Pack's actual rules).
+    edges: dict[str, frozenset[str]] = {
+        "deepagents": frozenset(),
+        "deepagents_cli": frozenset({"deepagents"}),
+    }
+    m = ArchLintMiddleware(edges=edges)
+    req = _write_request(
+        "libs/deepagents/deepagents/foo.py",
+        "from deepagents_cli.policy import TaskPolicy\n",
+    )
+    result = m.wrap_tool_call(req, _ok_handler)
+    assert result.status == "error"
+
+
+# ---------------------------------------------------------------------------
+# Sharp-edge 4: edit_file post-edit composition
+# ---------------------------------------------------------------------------
+
+
+def test_edit_file_with_repo_root_composes_post_edit_content(tmp_path: Any) -> None:
+    """When ``repo_root`` is set, the middleware reads the actual file
+    and composes ``current.replace(old_string, new_string)`` before
+    scanning. Catches violations that only manifest in full context."""
+    from pathlib import Path as _Path
+
+    from deepagents_cli.arch_lint import ArchLintMiddleware
+
+    # Build a fake repo-shaped tree
+    repo = _Path(tmp_path) / "repo"
+    target = repo / "libs" / "deepagents" / "deepagents" / "foo.py"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        "import os\n# placeholder\nimport sys\n"
+    )
+
+    m = ArchLintMiddleware(repo_root=str(repo))
+    req = _edit_request(
+        "libs/deepagents/deepagents/foo.py",
+        new_string="from deepagents_cli.policy import TaskPolicy",
+    )
+    # Default Mock _edit_request uses old_string="old", which doesn't
+    # match the file content. Make it match the placeholder.
+    req.tool_call["args"]["old_string"] = "# placeholder"
+
+    result = m.wrap_tool_call(req, _ok_handler)
+    assert result.status == "error"
+    assert "deepagents_cli" in str(result.content)
+
+
+def test_edit_file_without_repo_root_falls_back_to_new_string() -> None:
+    from deepagents_cli.arch_lint import ArchLintMiddleware
+
+    m = ArchLintMiddleware()  # no repo_root
+    req = _edit_request(
+        "libs/deepagents/deepagents/foo.py",
+        new_string="from deepagents_cli.policy import TaskPolicy",
+    )
+    # Without repo_root the middleware scans new_string only — same
+    # as before, so the violation still fires.
+    result = m.wrap_tool_call(req, _ok_handler)
+    assert result.status == "error"

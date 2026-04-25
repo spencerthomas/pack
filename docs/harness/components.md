@@ -1,9 +1,13 @@
 # Pack harness — components reference
 
-**Status:** Current as of commit `6cfc2aa5` (2026-04-24). Companion to
+**Status:** Current as of commit `933877c3` (2026-04-25). Companion to
 [`docs/roadmap/agent-harness-roadmap.md`](../roadmap/agent-harness-roadmap.md),
 which is the forward plan. This doc is the backward-looking catalog of
 what exists today.
+
+> The status header is checked by `coding-task/checks.yaml` invariant
+> `components_doc_status_current`; bump it whenever new harness work
+> ships.
 
 ## Overview
 
@@ -502,8 +506,8 @@ Total harness surface coverage: ~230 tests, all passing.
   ships at `.context-packs/coding-task/`.
 - **Phase B.3** — ✅ `harness discover` scans a repo and emits
   generated reports + proposed context-pack skeletons.
-- **Phase C** — ✅ reviewer sub-agent + policy-gated middleware.
-  Diff-aware reviewer upgrade (PR 5) pending.
+- **Phase C** — ✅ reviewer sub-agent + policy-gated middleware,
+  with diff + arch-lint + business-rule evidence (sharp-edge 6).
 - **Phase D.1** — ✅ arch-lint with ratchet mode, live in the
   agent loop via `create_cli_agent`. Business-rule checker (D.4)
   not yet built.

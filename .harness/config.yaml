@@ -1,0 +1,121 @@
+# Pack's own harness control plane.
+#
+# This file describes Pack's package layout, allowed dependency
+# direction, and per-task policies. The loader at
+# `libs/cli/deepagents_cli/harness_config.py` consumes it; downstream
+# middleware (scope, arch-lint, reviewer) consults the resulting
+# HarnessConfig. Code defaults stay as the floor — anything not
+# specified here keeps the values from `policy.py` and `arch_lint.py`.
+#
+# Editing rules:
+#   - Bumping `version` is reserved for breaking schema changes.
+#   - Add a package by appending to the `packages` list AND the
+#     `dependency_rules` list — the linter needs both.
+#   - Task-policy overrides build on the preset base in `policy.py`;
+#     unspecified fields inherit.
+
+version: 1
+
+repo:
+  name: pack
+  root: /
+
+packages:
+  - name: deepagents
+    path: libs/deepagents/deepagents
+    layer: runtime
+  - name: deepagents_cli
+    path: libs/cli/deepagents_cli
+    layer: harness
+  - name: deepagents_harbor
+    path: libs/evals/deepagents_harbor
+    layer: eval-adapter
+  - name: deepagents_evals
+    path: libs/evals
+    layer: evals
+
+# Direction is strict: later layers may depend on earlier ones, never
+# the reverse. Reverse imports are blocked by ArchLintMiddleware.
+dependency_rules:
+  - from: libs/deepagents/deepagents/**
+    may_not_import:
+      - libs/cli/deepagents_cli/**
+      - libs/evals/**
+      - benchmarks/**
+  - from: libs/cli/deepagents_cli/**
+    may_import:
+      - libs/deepagents/deepagents/**
+    may_not_import:
+      - libs/evals/**
+      - benchmarks/**
+  - from: libs/evals/deepagents_harbor/**
+    may_import:
+      - libs/cli/deepagents_cli/**
+      - libs/deepagents/deepagents/**
+  - from: benchmarks/**
+    may_import:
+      - libs/cli/deepagents_cli/**
+      - libs/deepagents/deepagents/**
+
+task_policies:
+  docs:
+    allowed_paths:
+      - "docs/**"
+      - "**/*.md"
+      - "README.md"
+      - "CHANGELOG.md"
+    max_files_changed: 15
+    required_checks:
+      - docs-lint
+
+  feature:
+    allowed_paths:
+      - "libs/**"
+      - "tests/**"
+      - "docs/**"
+      - ".context-packs/**"
+    max_files_changed: 25
+    require_plan: true
+    require_reviewer: true
+    required_checks:
+      - arch-lint
+      - business-rules
+      - tests
+      - lint
+      - typecheck
+
+  bugfix:
+    allowed_paths:
+      - "libs/**"
+      - "tests/**"
+    max_files_changed: 10
+    require_reviewer: true
+    required_checks:
+      - arch-lint
+      - tests
+      - lint
+
+  refactor:
+    allowed_paths:
+      - "libs/**"
+      - "tests/**"
+      - "docs/**"
+    max_files_changed: 50
+    require_plan: true
+    require_reviewer: true
+    required_checks:
+      - arch-lint
+      - business-rules
+      - tests
+      - lint
+      - typecheck
+
+  test-generation:
+    allowed_paths:
+      - "tests/**"
+      - "**/test_*.py"
+      - "**/*_test.py"
+    max_files_changed: 15
+    required_checks:
+      - tests
+      - lint
