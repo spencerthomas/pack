@@ -78,6 +78,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Browser automation — Pack's native browser surface (Obscura + Playwright CDP)
+browser = [
+    "playwright>=1.40.0,<2.0.0",
+]
 # Model providers
 anthropic = ["langchain-anthropic>=1.4.0,<2.0.0"]
 baseten = ["langchain-baseten>=0.1.9,<1.0.0"]
