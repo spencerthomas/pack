@@ -403,7 +403,9 @@ dependencies = [
     { name = "langchain-anthropic" },
     { name = "langchain-core" },
     { name = "langchain-google-genai" },
+    { name = "langchain-openai" },
     { name = "langsmith" },
+    { name = "tiktoken" },
     { name = "wcmatch" },
 ]
 
@@ -413,9 +415,16 @@ requires-dist = [
     { name = "langchain-anthropic", specifier = ">=1.4.0,<2.0.0" },
     { name = "langchain-core", specifier = ">=1.2.27,<2.0.0" },
     { name = "langchain-google-genai", specifier = ">=4.2.1,<5.0.0" },
+    { name = "langchain-openai", specifier = ">=0.3.0,<2.0.0" },
     { name = "langsmith", specifier = ">=0.3.0" },
+    { name = "nbclient", marker = "extra == 'pack'", specifier = ">=0.10.0" },
+    { name = "nbformat", marker = "extra == 'pack'", specifier = ">=5.10.0" },
+    { name = "pygls", marker = "extra == 'pack'", specifier = ">=1.3.0" },
+    { name = "pymupdf", marker = "extra == 'pack'", specifier = ">=1.24.0" },
+    { name = "tiktoken", specifier = ">=0.7.0" },
     { name = "wcmatch" },
 ]
+provides-extras = ["pack"]
 
 [package.metadata.requires-dev]
 test = [
